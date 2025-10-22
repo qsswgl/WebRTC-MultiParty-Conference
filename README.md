@@ -1,185 +1,183 @@
-# WebRTC 实时音频通信应用
+﻿#  WebRTC 多人会议系统
 
-基于 **WebRTC + .NET 8 SignalR** 技术栈的实时音频通信应用。
+基于 .NET 8 SignalR + WebRTC 的实时音视频多人会议系统
 
-## 功能特性
+[![.NET](https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
+[![SignalR](https://img.shields.io/badge/SignalR-8.0-512BD4)](https://docs.microsoft.com/aspnet/signalr/)
+[![WebRTC](https://img.shields.io/badge/WebRTC-P2P-00C853)](https://webrtc.org/)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-- ✅ 创建和加入聊天室
-- ✅ 实时音频通话
-- ✅ **增强回声消除优化**
-- ✅ 噪声抑制
-- ✅ 自动增益控制
-- ✅ 低延迟优化
-- ✅ 支持移动端微信访问
-- ✅ 基于SignalR的稳定信令通道
+** 在线体验**: https://tx.qsgl.net:8096
 
-## 技术栈
+##  功能特性
 
-- **前端**: WebRTC API, HTML5, CSS3, JavaScript, SignalR Client
-- **后端**: .NET 8 + ASP.NET Core + SignalR
-- **部署**: Docker + HTTPS
-- **证书**: 自动获取qsgl.net泛域名证书
+### 核心功能
+-  **高质量音频通话** - 48kHz 采样率,14 参数音频优化
+-  **可选视频通话** - 720p@30fps,默认纯语音模式
+-  **多人会议支持** - 最多 10 人同时在线
+-  **P2P 直连** - Mesh 架构,低延迟高质量
+-  **微信支持** - HTTPS 安全协议,微信内可直接使用
+-  **自动重连** - SignalR 断线自动重连机制
 
-## 快速开始
+### 音频优化
+-  双重回声消除 (echoCancellation + googEchoCancellation2)
+-  双重噪声抑制 (noiseSuppression + googNoiseSuppression2)
+-  双重自动增益 (autoGainControl + googAutoGainControl2)
+-  高通滤波器 (googHighpassFilter)
+-  打字噪声检测 (googTypingNoiseDetection)
+-  低延迟模式 (latency: 0)
 
-### 本地开发
+### 用户体验
+-  实时用户列表显示
+-  响应式视频网格布局
+-  一键静音/取消静音
+-  动态视频开关
+-  一键复制分享链接
+-  音频电平可视化
 
-```powershell
-# 恢复依赖
+##  快速开始
+
+### 克隆仓库
+
+`powershell
+git clone git@github.com:qsswgl/WebRTC-MultiParty-Conference.git
+cd WebRTC-MultiParty-Conference
+`
+
+### 本地运行
+
+`powershell
+# 还原依赖
 dotnet restore
 
-# 运行应用
+# 运行项目
 dotnet run
+`
 
-# 访问 https://localhost:8096
-```
+访问 http://localhost:8096
 
-### Docker部署
+### Docker 部署
 
-```powershell
-# 构建镜像
-docker-compose build
-
-# 运行容器
+`powershell
+# 构建并启动
 docker-compose up -d
 
 # 查看日志
 docker-compose logs -f
-```
+`
 
-## 部署到生产环境
+##  使用指南
 
-使用提供的部署脚本自动部署到 tx.qsgl.net 服务器：
+### 创建会议
+1. 访问应用首页
+2. 点击 **"创建聊天室"**
+3. 允许浏览器麦克风权限
+4. 复制生成的分享链接
 
-```powershell
-# Windows PowerShell
-.\scripts\Deploy.ps1
-```
+### 加入会议
+1. 点击分享链接
+2. 允许麦克风权限
+3. 自动加入会议室
 
-部署脚本会自动完成以下操作：
-1. 从API获取SSL证书
-2. 准备并打包项目文件
-3. 通过SSH上传到服务器
-4. 在服务器上构建和启动Docker容器
+### 会议功能
+- **静音**: 点击麦克风按钮
+- **开启视频**: 点击摄像头按钮
+- **查看成员**: 在线用户列表
+- **离开会议**: 点击离开房间
 
-服务将在 **https://tx.qsgl.net:8096** 上提供访问。
+##  性能指标
 
-## 单独获取证书
+| 参会人数 | 建议带宽 | 连接数 | CPU | 内存 |
+|---------|---------|--------|-----|------|
+| 2-3人 | 2 Mbps | 1-3 | 低 | 512MB |
+| 4-6人 | 4 Mbps | 6-15 | 中 | 1GB |
+| 7-10人 | 8 Mbps | 21-45 | 高 | 2GB |
 
-如果只需要获取证书：
+##  架构设计
 
-```powershell
-.\scripts\Get-Certificate.ps1
-```
+### Mesh P2P 架构
+`
+用户A  用户B
+    ＼    
+         
+      ＼  
+用户C
 
-证书将保存到 `.\certs\` 目录。
+ 每个用户与其他所有用户建立直接连接
+ SignalR 仅用于信令交换
+ 音视频流完全 P2P 传输
+ 连接数 = N * (N-1) / 2
+`
 
-## 使用说明
+### 技术栈
+- **后端**: .NET 8 + SignalR 8.0
+- **前端**: WebRTC API + JavaScript
+- **部署**: Docker + HTTPS
 
-1. 访问首页创建聊天室
-2. 复制并分享聊天室链接给客户（支持微信）
-3. 客户通过微信点击链接即可加入语音通话
-4. 支持静音/取消静音功能
-5. 显示实时音频电平
+##  项目结构
 
-## 音频优化配置
+`
+WebRTC-MultiParty-Conference/
+ Program.cs                 # 应用入口
+ Hubs/
+    WebRTCHub.cs          # SignalR Hub
+ Services/
+    RoomManager.cs        # 房间管理
+ wwwroot/
+    index.html            # 前端页面
+    app-multiparty.js     # 多人会议逻辑
+    styles.css            # 样式文件
+ Dockerfile
+ docker-compose.yml
+ README.md
+`
 
-应用已启用以下WebRTC音频优化参数：
+##  故障排查
 
-| 参数 | 说明 | 效果 |
-|------|------|------|
-| `echoCancellation` | 标准回声消除 | 消除扬声器反馈 |
-| `googEchoCancellation2` | Google增强回声消除 | 更强的回声抑制 |
-| `noiseSuppression` | 标准噪声抑制 | 减少背景噪音 |
-| `googNoiseSuppression2` | Google增强噪声抑制 | 更强的噪音过滤 |
-| `autoGainControl` | 自动增益控制 | 自动调整音量 |
-| `googAutoGainControl2` | Google增强增益控制 | 更平滑的音量调节 |
-| `googHighpassFilter` | 高通滤波器 | 过滤低频噪声 |
-| `googTypingNoiseDetection` | 打字噪声检测 | 抑制键盘声音 |
-| `latency: 0` | 低延迟模式 | 减少传输延迟 |
-| `sampleRate: 48000` | 48kHz采样率 | 高质量音频 |
-
-## 项目结构
-
-```
-WebRTC/
-├── Program.cs                  # ASP.NET Core入口
-├── WebRTCApp.csproj           # 项目文件
-├── appsettings.json           # 配置文件
-├── Hubs/
-│   └── WebRTCHub.cs           # SignalR Hub
-├── Services/
-│   └── RoomManager.cs         # 房间管理服务
-├── wwwroot/                   # 静态文件
-│   ├── index.html             # 主页面
-│   ├── app.js                 # SignalR客户端
-│   └── styles.css             # 样式
-├── scripts/
-│   ├── Get-Certificate.ps1    # 证书获取脚本
-│   └── Deploy.ps1             # 部署脚本
-├── Dockerfile                 # Docker镜像定义
-├── docker-compose.yml         # Docker编排
-└── README.md                  # 本文档
-```
-
-## SignalR Hub 方法
-
-### 客户端调用的方法
-
-- `CreateRoom(userId)` - 创建聊天室
-- `JoinRoom(roomId, userId)` - 加入聊天室
-- `SendOffer(targetUserId, offer)` - 发送WebRTC Offer
-- `SendAnswer(targetUserId, answer)` - 发送WebRTC Answer
-- `SendIceCandidate(targetUserId, candidate)` - 发送ICE候选
-- `LeaveRoom()` - 离开聊天室
-
-### 服务端推送的事件
-
-- `UserJoined` - 用户加入通知
-- `ReceiveOffer` - 接收Offer
-- `ReceiveAnswer` - 接收Answer
-- `ReceiveIceCandidate` - 接收ICE候选
-- `UserLeft` - 用户离开通知
-
-## 管理命令
-
-```powershell
-# 查看容器日志
-ssh -i C:\Key\tx.qsgl.net_id_ed25519 root@tx.qsgl.net 'docker-compose -f /opt/webrtc-app/docker-compose.yml logs -f'
-
-# 重启服务
-ssh -i C:\Key\tx.qsgl.net_id_ed25519 root@tx.qsgl.net 'docker-compose -f /opt/webrtc-app/docker-compose.yml restart'
-
-# 停止服务
-ssh -i C:\Key\tx.qsgl.net_id_ed25519 root@tx.qsgl.net 'docker-compose -f /opt/webrtc-app/docker-compose.yml down'
-
-# 查看容器状态
-ssh -i C:\Key\tx.qsgl.net_id_ed25519 root@tx.qsgl.net 'docker ps'
-```
-
-## 故障排除
-
-### 麦克风权限问题
-- 确保浏览器允许麦克风访问
-- HTTPS是必须的（HTTP无法访问麦克风）
-- 微信内需要用户手动授权
+### 无法访问麦克风/摄像头
+- 使用 HTTPS (HTTP 不支持媒体设备访问)
+- Chrome: chrome://flags/#unsafely-treat-insecure-origin-as-secure
 
 ### 连接失败
-- 检查防火墙是否开放8096端口
-- 确认HTTPS证书是否有效
-- 查看浏览器控制台错误信息
+- 检查防火墙设置
+- 确认 STUN 服务器可达
+- 考虑配置 TURN 服务器
 
-### 音频质量问题
-- 检查网络延迟和带宽
-- 确认麦克风和扬声器设备正常
-- 尝试调整音频约束参数
+### 视频不显示
+- 确认双方都点击了"开启视频"
+- 检查摄像头权限
 
-## 技术支持
+##  安全说明
 
-- WebRTC官方文档: https://webrtc.org/
-- SignalR文档: https://learn.microsoft.com/aspnet/core/signalr/
-- .NET 8文档: https://learn.microsoft.com/dotnet/
+-  HTTPS 传输加密
+-  WebRTC 端到端加密
+-  不存储媒体流
+-  随机房间 ID
 
-## 许可
+##  扩展升级
 
-MIT License
+### SFU 架构 (支持 50+ 人)
+- Janus Gateway
+- Mediasoup
+- Kurento Media Server
+
+##  路线图
+
+- [x] 1对1 音频通话
+- [x] 可选视频功能
+- [x] 多人会议 (Mesh)
+- [x] HTTPS 部署
+- [x] Docker 容器化
+- [ ] 屏幕共享
+- [ ] 聊天消息
+- [ ] 会议录制
+- [ ] SFU 架构
+
+##  联系方式
+
+- GitHub: [@qsswgl](https://github.com/qsswgl)
+- 仓库: [WebRTC-MultiParty-Conference](https://github.com/qsswgl/WebRTC-MultiParty-Conference)
+
+---
+
+** 如果这个项目对你有帮助,请给个 Star!**

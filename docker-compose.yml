@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  webrtc-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: webrtc-signalr
+    restart: unless-stopped
+    ports:
+      - "8096:8096"
+    volumes:
+      - ./certs:/app/certs:ro
+    environment:
+      - ASPNETCORE_URLS=https://+:8096
+      - ASPNETCORE_ENVIRONMENT=Production
+      - CertPath=/app/certs
+    networks:
+      - webrtc-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  webrtc-network:
+    driver: bridge

@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>WebRTC 多人会议</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎤 实时多人会议</h1>
+            <p class="subtitle">基于WebRTC + SignalR的高质量音视频会议</p>
+        </header>
+
+        <main>
+            <div class="card" id="welcomeCard">
+                <h2>开始通话</h2>
+                <div class="button-group">
+                    <button id="createRoomBtn" class="btn btn-primary">
+                        <span class="icon">➕</span>
+                        创建聊天室
+                    </button>
+                </div>
+                
+                <div class="divider">
+                    <span>或</span>
+                </div>
+                
+                <div class="input-group">
+                    <label for="roomIdInput">输入房间ID加入:</label>
+                    <div class="input-with-button">
+                        <input 
+                            type="text" 
+                            id="roomIdInput" 
+                            placeholder="输入房间ID"
+                            autocomplete="off"
+                        >
+                        <button id="joinRoomBtn" class="btn btn-secondary">
+                            加入
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card hidden" id="roomCard">
+                <div class="room-header">
+                    <h2>聊天室</h2>
+                    <div class="room-id-display">
+                        <span class="label">房间ID:</span>
+                        <code id="currentRoomId"></code>
+                        <button id="copyRoomIdBtn" class="btn-icon" title="复制房间ID">
+                            📋
+                        </button>
+                    </div>
+                </div>
+
+                <div class="share-section">
+                    <label>分享链接:</label>
+                    <div class="input-with-button">
+                        <input 
+                            type="text" 
+                            id="shareLink" 
+                            readonly
+                        >
+                        <button id="copyLinkBtn" class="btn btn-secondary">
+                            复制链接
+                        </button>
+                    </div>
+                </div>
+
+                <div class="status-section">
+                    <div class="status-item">
+                        <span class="status-label">连接状态:</span>
+                        <span id="connectionStatus" class="status-value">等待连接...</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">音频状态:</span>
+                        <span id="audioStatus" class="status-value">未激活</span>
+                    </div>
+                </div>
+
+                <div class="user-list-section">
+                    <h3>在线用户</h3>
+                    <div id="userList" class="user-list"></div>
+                </div>
+
+                <div class="controls">
+                    <button id="muteBtn" class="btn btn-control" disabled>
+                        <span class="icon">🎤</span>
+                        <span class="text">静音</span>
+                    </button>
+                    <button id="videoBtn" class="btn btn-control" disabled>
+                        <span class="icon">📹</span>
+                        <span class="text">开启视频</span>
+                    </button>
+                    <button id="leaveRoomBtn" class="btn btn-danger">
+                        <span class="icon">📞</span>
+                        <span class="text">离开房间</span>
+                    </button>
+                </div>
+
+                <div class="video-container hidden" id="videoContainer">
+                    <video id="localVideo" autoplay muted playsinline></video>
+                </div>
+
+                <div id="remoteUsers" class="remote-users-grid"></div>
+
+                <div class="audio-indicator">
+                    <div class="indicator-bar">
+                        <div id="audioLevel" class="indicator-fill"></div>
+                    </div>
+                    <small>音频电平</small>
+                </div>
+            </div>
+
+            <div class="info-card">
+                <h3>💡 使用说明</h3>
+                <ul>
+                    <li>创建聊天室后，将链接发送给参会者</li>
+                    <li>多人点击链接即可加入会议(最多10人)</li>
+                    <li>支持微信内直接打开使用</li>
+                    <li>默认纯语音,可手动开启视频</li>
+                    <li>已启用回声消除和噪声抑制优化</li>
+                    <li>使用.NET 8 SignalR + WebRTC Mesh架构</li>
+                </ul>
+            </div>
+        </main>
+
+        <footer>
+            <p>基于WebRTC + SignalR技术 | 安全加密通信 | 支持多人会议</p>
+        </footer>
+    </div>
+
+    <audio id="localAudio" autoplay muted></audio>
+
+    <div id="toast" class="toast">
+        <span id="toastMessage"></span>
+    </div>
+
+    <!-- SignalR客户端库 -->
+    <script src="https://cdn.jsdelivr.net/npm/@microsoft/signalr@8.0.0/dist/browser/signalr.min.js"></script>
+    <script src="app-multiparty.js"></script>
+
+</body>
+</html>

@@ -1,0 +1,39 @@
+# .NET Build Artifacts
+bin/
+obj/
+publish/
+
+# User-specific files
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Certificate files
+certs/
+*.pem
+*.crt
+*.key
+*.pfx
+
+# VS Code
+.vscode/
+.vs/
+
+# Logs
+*.log
+
+# Docker
+.dockerignore
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+README.md
+需求文档.txt
+
+# Scripts (keep for reference but don't include in image)
+scripts/
+deploy.ps1

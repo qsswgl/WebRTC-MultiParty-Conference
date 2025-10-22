@@ -1,0 +1,79 @@
+
+✅ 1 使用纯WebRTC技术栈来构建实时音视频通信应用，支持我在html页面创建聊天室，然后将聊天室链接，发给客户微信，客户点击微信里此链接，开始语音通话  
+✅ 2 后端用.NET8 SignalR实现，要求优化回声消除
+✅ 3 使用密钥 C:\Key\tx.qsgl.net_id_ed25519 用ssh密钥登录到 tx.qsgl.net 服务器，将项目部署到容器里，对外提供服务地址 https://tx.qsgl.net:8096
+✅ 4 使用现有证书(/opt/shared-certs/tx.qsgl.net.crt + .key)配置 HTTPS，支持微信访问
+✅ 5 添加可选视频功能，默认纯语音通话，可手动开启视频
+✅ 6 支持多人加入聊天室，多人会议(最多10人)
+
+===============================================
+✅ 项目已全部完成！v2.0 多人会议版！
+===============================================
+
+📦 技术栈：
+- 后端: .NET 8 + ASP.NET Core + SignalR
+- 前端: WebRTC API + SignalR Client + HTML5
+- 部署: Docker + Docker Compose
+- 证书: tx.qsgl.net SSL 证书(从 /opt/shared-certs 获取)
+- 协议: HTTPS (端口 8096)
+
+🎯 主要功能：
+1. ✅ 创建/加入聊天室
+2. ✅ 实时音频通话（WebRTC P2P）
+3. ✅ 多重回声消除优化（包含Google增强版）
+4. ✅ 噪声抑制和自动增益控制
+5. ✅ 低延迟配置（latency: 0）
+6. ✅ 微信内直接访问支持(HTTPS)
+7. ✅ SignalR自动重连机制
+8. ✅ 音频电平可视化
+9. ✅ 可选视频通话(默认纯语音，可手动开启)
+10. ✅ 720p@30fps 视频质量
+11. ✅ **多人会议支持(最多10人)**
+12. ✅ **Mesh网络架构(P2P全连接)**
+13. ✅ **实时用户列表显示**
+14. ✅ **响应式视频网格布局**
+
+🚀 部署方式：
+```powershell
+.\scripts\Deploy-Simple.ps1
+```
+
+🌐 访问地址：
+https://tx.qsgl.net:8096
+
+📚 详细文档：
+- README.md - 项目技术说明
+- 使用指南.md - 详细使用和部署指南
+- HTTP测试指南.md - HTTP 功能测试指南
+
+🎤 音频优化参数（已全部启用）：
+- echoCancellation + googEchoCancellation2
+- noiseSuppression + googNoiseSuppression2  
+- autoGainControl + googAutoGainControl2
+- googHighpassFilter (高通滤波器)
+- googTypingNoiseDetection (打字噪声检测)
+- sampleRate: 48000 (48kHz高采样率)
+- latency: 0 (低延迟模式)
+
+📹 视频功能特性：
+- 默认纯语音模式(节省带宽)
+- 一键开启/关闭视频
+- 本地视频画中画显示(右下角)
+- 远程视频主窗口显示
+- 720p 高清分辨率
+- 30fps 流畅帧率
+- 动态轨道替换(无需重新连接)
+
+🔒 HTTPS 配置：
+- 证书路径: /opt/webrtc-app/certs/cert.pfx
+- 证书来源: /opt/shared-certs/tx.qsgl.net.*
+- 证书格式: PFX (由 PEM 转换)
+- 端口: 8096 (HTTPS)
+- 状态: ✅ 正常运行
+
+📱 微信支持：
+- ✅ HTTPS 安全协议
+- ✅ 麦克风权限正常
+- ✅ 摄像头权限正常
+- ✅ 房间链接直接分享
+- ✅ 微信内浏览器完全支持

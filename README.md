@@ -9,6 +9,28 @@
 
 ** 在线体验**: https://tx.qsgl.net:8096
 
+## 📸 项目截图
+
+> **注意**: 截图正在准备中。如果你愿意贡献项目截图,请查看 [截图贡献指南](docs/SCREENSHOTS.md)。
+
+### 多人视频会议
+<!-- 待添加: 多人视频通话界面 -->
+![多人会议](docs/screenshots/multiparty-video.png)
+
+### 响应式视频布局
+<!-- 待添加: 展示不同人数的视频网格 -->
+| 2人会议 | 4人会议 | 6人会议 |
+|---------|---------|---------|
+| ![2人](docs/screenshots/grid-2-users.png) | ![4人](docs/screenshots/grid-4-users.png) | ![6人](docs/screenshots/grid-6-users.png) |
+
+### 移动端支持
+<!-- 待添加: 移动端和微信内界面 -->
+| 移动端浏览器 | 微信内访问 |
+|------------|-----------|
+| ![移动端](docs/screenshots/mobile.png) | ![微信](docs/screenshots/wechat.png) |
+
+**更多截图和演示视频**: 查看 [完整截图文档](docs/SCREENSHOTS.md)
+
 ##  功能特性
 
 ### 核心功能

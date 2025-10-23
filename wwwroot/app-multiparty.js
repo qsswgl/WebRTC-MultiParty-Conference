@@ -11,14 +11,34 @@ class MultiPartyWebRTCClient {
         this.isVideoEnabled = false;
         this.remoteUsers = new Set(); // 远程用户ID集合
         
-        // WebRTC配置
+        // WebRTC配置 - 添加多个STUN服务器和公共TURN服务器
         this.rtcConfig = {
             iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
-                { urls: 'stun:stun2.l.google.com:19302' }
+                { urls: 'stun:stun2.l.google.com:19302' },
+                { urls: 'stun:stun.stunprotocol.org:3478' },
+                // 使用公共的 TURN 服务器 (开放测试)
+                {
+                    urls: 'turn:openrelay.metered.ca:80',
+                    username: 'openrelayproject',
+                    credential: 'openrelayproject'
+                },
+                {
+                    urls: 'turn:openrelay.metered.ca:443',
+                    username: 'openrelayproject',
+                    credential: 'openrelayproject'
+                },
+                {
+                    urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+                    username: 'openrelayproject',
+                    credential: 'openrelayproject'
+                }
             ],
-            iceCandidatePoolSize: 10
+            iceCandidatePoolSize: 10,
+            iceTransportPolicy: 'all', // 尝试所有可用的连接方式
+            bundlePolicy: 'max-bundle',
+            rtcpMuxPolicy: 'require'
         };
         
         // 音频约束 - 优化回声消除和低延迟
@@ -283,7 +303,9 @@ class MultiPartyWebRTCClient {
     
     async joinRoom(roomId) {
         try {
-            // 先加入房间，再获取媒体流
+            console.log(`[joinRoom] 开始加入房间: ${roomId}`);
+            
+            // 先加入房间
             const result = await this.connection.invoke("JoinRoom", roomId, this.userId);
             
             if (result.type === 'error') {
@@ -294,7 +316,7 @@ class MultiPartyWebRTCClient {
             if (result.type === 'room-joined') {
                 this.roomId = roomId;
                 
-                // 尝试获取媒体流
+                // 先获取媒体流,再建立连接
                 try {
                     await this.getUserMedia();
                 } catch (mediaError) {
@@ -304,10 +326,21 @@ class MultiPartyWebRTCClient {
                 
                 this.showRoomInterface();
                 this.showToast('已加入房间', 'success');
-                console.log('加入房间成功:', roomId);
+                console.log('加入房间成功:', roomId, '已有成员:', result.members);
                 
-                // 与房间内已有成员建立连接
-                if (result.members && result.members.length > 0) {
+                // 与房间内已有成员建立连接 (必须在获取媒体流之后)
+                if (result.members && result.members.length > 0 && this.localStream) {
+                    console.log(`[joinRoom] 向 ${result.members.length} 个已有成员发起连接...`);
+                    for (const member of result.members) {
+                        this.remoteUsers.add(member.userId);
+                        // 主动向已有成员发起 PeerConnection (作为发起者)
+                        console.log(`[joinRoom] 向成员 ${member.userId} 发起连接`);
+                        await this.createPeerConnection(member.userId, true);
+                    }
+                    this.updateUserList();
+                } else if (result.members && result.members.length > 0 && !this.localStream) {
+                    console.warn('[joinRoom] 没有本地流,无法建立 P2P 连接');
+                    // 仍然添加到用户列表
                     for (const member of result.members) {
                         this.remoteUsers.add(member.userId);
                     }
@@ -447,87 +480,136 @@ class MultiPartyWebRTCClient {
     }
     
     async createPeerConnection(userId, isInitiator) {
-        console.log(`创建 PeerConnection: ${userId}, initiator: ${isInitiator}`);
+        console.log(`[createPeerConnection] 创建连接: userId=${userId}, initiator=${isInitiator}`);
         
         const pc = new RTCPeerConnection(this.rtcConfig);
         this.peerConnections.set(userId, pc);
         
         // 添加本地流
+        console.log(`[createPeerConnection] 添加本地轨道...`);
         this.localStream.getTracks().forEach(track => {
+            console.log(`[createPeerConnection] 添加轨道: ${track.kind}, enabled: ${track.enabled}, readyState: ${track.readyState}`);
             pc.addTrack(track, this.localStream);
         });
         
         // 处理远程流
         pc.ontrack = (event) => {
-            console.log(`收到远程流 from ${userId}:`, event.track.kind);
+            console.log(`[ontrack] 收到远程流 from ${userId}:`, event.track.kind);
             this.handleRemoteTrack(userId, event);
         };
         
         // 处理ICE候选
         pc.onicecandidate = async (event) => {
             if (event.candidate) {
+                const candidateType = event.candidate.type || 'unknown';
+                const protocol = event.candidate.protocol || '';
+                console.log(`[ICE] 发送候选到 ${userId}: ${candidateType} (${protocol})`);
                 try {
                     await this.connection.invoke("SendIceCandidate", userId, event.candidate);
                 } catch (err) {
-                    console.error('发送ICE候选失败:', err);
+                    console.error('[ICE] 发送ICE候选失败:', err);
+                }
+            } else {
+                console.log(`[ICE] ICE收集完成: ${userId}`);
+            }
+        };
+        
+        // ICE连接状态
+        pc.oniceconnectionstatechange = () => {
+            console.log(`[ICE] ${userId} 连接状态: ${pc.iceConnectionState}`);
+            if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
+                console.warn(`[ICE] ⚠️ ${userId} ICE连接失败,尝试重启ICE...`);
+                // 尝试重启 ICE
+                if (pc.restartIce) {
+                    pc.restartIce();
                 }
             }
         };
         
+        // ICE 收集状态
+        pc.onicegatheringstatechange = () => {
+            console.log(`[ICE] ${userId} 收集状态: ${pc.iceGatheringState}`);
+        };
+        
         // 连接状态监听
         pc.onconnectionstatechange = () => {
-            console.log(`PeerConnection ${userId} state:`, pc.connectionState);
+            console.log(`[PeerConnection] ${userId} 状态: ${pc.connectionState}`);
             this.updateConnectionStatus();
         };
         
         // 如果是发起者,创建offer
         if (isInitiator) {
             try {
+                console.log(`[Offer] 作为发起者创建 Offer 给 ${userId}`);
                 const offer = await pc.createOffer({
                     offerToReceiveAudio: true,
                     offerToReceiveVideo: true
                 });
                 await pc.setLocalDescription(offer);
+                console.log(`[Offer] 发送 Offer 到 ${userId}`);
                 await this.connection.invoke("SendOffer", userId, offer);
             } catch (error) {
-                console.error('创建Offer失败:', error);
+                console.error('[Offer] 创建Offer失败:', error);
             }
         }
     }
     
     async handleOffer(userId, offer) {
         try {
+            console.log(`[handleOffer] 收到来自 ${userId} 的 Offer`);
             const pc = this.peerConnections.get(userId);
-            if (!pc) return;
+            if (!pc) {
+                console.error(`[handleOffer] 找不到 PeerConnection: ${userId}`);
+                return;
+            }
             
+            console.log(`[handleOffer] 设置远程描述...`);
             await pc.setRemoteDescription(new RTCSessionDescription(offer));
+            console.log(`[handleOffer] 创建 Answer...`);
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
+            console.log(`[handleOffer] 发送 Answer 到 ${userId}`);
             await this.connection.invoke("SendAnswer", userId, answer);
         } catch (error) {
-            console.error('处理Offer失败:', error);
+            console.error('[handleOffer] 处理Offer失败:', error);
         }
     }
     
     async handleAnswer(userId, answer) {
         try {
+            console.log(`[handleAnswer] 收到来自 ${userId} 的 Answer`);
             const pc = this.peerConnections.get(userId);
-            if (!pc) return;
+            if (!pc) {
+                console.error(`[handleAnswer] 找不到 PeerConnection: ${userId}`);
+                return;
+            }
             
+            console.log(`[handleAnswer] 设置远程描述...`);
             await pc.setRemoteDescription(new RTCSessionDescription(answer));
+            console.log(`[handleAnswer] ✅ Answer 处理完成: ${userId}`);
         } catch (error) {
-            console.error('处理Answer失败:', error);
+            console.error('[handleAnswer] 处理Answer失败:', error);
         }
     }
     
     async handleIceCandidate(userId, candidate) {
         try {
+            const candidateType = candidate?.type || 'unknown';
+            console.log(`[handleIceCandidate] 收到来自 ${userId} 的 ICE 候选: ${candidateType}`);
             const pc = this.peerConnections.get(userId);
-            if (!pc) return;
+            if (!pc) {
+                console.error(`[handleIceCandidate] 找不到 PeerConnection: ${userId}`);
+                return;
+            }
             
-            await pc.addIceCandidate(new RTCIceCandidate(candidate));
+            if (pc.remoteDescription) {
+                await pc.addIceCandidate(new RTCIceCandidate(candidate));
+                console.log(`[handleIceCandidate] ✅ ICE候选已添加: ${userId} (${candidateType})`);
+            } else {
+                console.warn(`[handleIceCandidate] 远程描述未设置,跳过候选: ${userId}`);
+            }
         } catch (error) {
-            console.error('添加ICE候选失败:', error);
+            console.error('[handleIceCandidate] 添加ICE候选失败:', error);
         }
     }
     
@@ -535,10 +617,18 @@ class MultiPartyWebRTCClient {
         const stream = event.streams[0];
         const track = event.track;
         
+        console.log(`[handleRemoteTrack] 用户: ${userId}`);
+        console.log(`[handleRemoteTrack] 轨道类型: ${track.kind}`);
+        console.log(`[handleRemoteTrack] 轨道状态: ${track.readyState}`);
+        console.log(`[handleRemoteTrack] 轨道启用: ${track.enabled}`);
+        console.log(`[handleRemoteTrack] Stream ID: ${stream.id}`);
+        console.log(`[handleRemoteTrack] Stream tracks:`, stream.getTracks().map(t => `${t.kind}:${t.readyState}`));
+        
         // 查找或创建该用户的媒体元素
         let mediaContainer = document.getElementById(`remote-${userId}`);
         
         if (!mediaContainer) {
+            console.log(`[handleRemoteTrack] 创建新的媒体容器: remote-${userId}`);
             mediaContainer = document.createElement('div');
             mediaContainer.id = `remote-${userId}`;
             mediaContainer.className = 'remote-user';
@@ -551,6 +641,7 @@ class MultiPartyWebRTCClient {
             audioEl.id = `audio-${userId}`;
             audioEl.autoplay = true;
             audioEl.playsInline = true;
+            audioEl.volume = 1.0;
             
             const videoEl = document.createElement('video');
             videoEl.id = `video-${userId}`;
@@ -564,16 +655,46 @@ class MultiPartyWebRTCClient {
             mediaContainer.appendChild(audioEl);
             
             document.getElementById('remoteUsers').appendChild(mediaContainer);
+            console.log(`[handleRemoteTrack] 媒体容器已添加到 DOM`);
         }
         
         const audioEl = document.getElementById(`audio-${userId}`);
         const videoEl = document.getElementById(`video-${userId}`);
         
         if (track.kind === 'audio') {
+            console.log(`[handleRemoteTrack] 设置音频流到 audio-${userId}`);
             audioEl.srcObject = stream;
+            
+            // 监听音频元素事件
+            audioEl.onloadedmetadata = () => {
+                console.log(`[Audio] loadedmetadata - 音频元数据已加载: ${userId}`);
+            };
+            audioEl.oncanplay = () => {
+                console.log(`[Audio] canplay - 音频可以播放: ${userId}`);
+                audioEl.play().then(() => {
+                    console.log(`[Audio] ✅ 音频开始播放: ${userId}, volume: ${audioEl.volume}`);
+                }).catch(err => {
+                    console.error(`[Audio] ❌ 音频播放失败: ${userId}`, err);
+                });
+            };
+            audioEl.onplay = () => {
+                console.log(`[Audio] play 事件触发: ${userId}`);
+            };
+            audioEl.onerror = (err) => {
+                console.error(`[Audio] 错误: ${userId}`, err);
+            };
+            
         } else if (track.kind === 'video') {
+            console.log(`[handleRemoteTrack] 设置视频流到 video-${userId}`);
             videoEl.srcObject = stream;
             videoEl.classList.remove('hidden');
+            
+            videoEl.onloadedmetadata = () => {
+                console.log(`[Video] loadedmetadata - 视频元数据已加载: ${userId}`);
+            };
+            videoEl.oncanplay = () => {
+                console.log(`[Video] canplay - 视频可以播放: ${userId}`);
+            };
         }
     }
     

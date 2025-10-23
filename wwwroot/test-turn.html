@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TURN 服务器测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            margin: 10px;
+            cursor: pointer;
+        }
+        #results {
+            background: #f5f5f5;
+            padding: 20px;
+            border-radius: 5px;
+            margin-top: 20px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        .success { color: green; }
+        .error { color: red; }
+        .info { color: blue; }
+    </style>
+</head>
+<body>
+    <h1>🔌 TURN 服务器连接测试</h1>
+    <p>此页面测试 TURN 服务器是否可用</p>
+    
+    <button onclick="testTURN()">测试 TURN 连接</button>
+    <button onclick="clearResults()">清除结果</button>
+    
+    <div id="results"></div>
+
+    <script>
+        const log = (message, type = 'info') => {
+            const results = document.getElementById('results');
+            const span = document.createElement('span');
+            span.className = type;
+            span.textContent = `[${new Date().toLocaleTimeString()}] ${message}\n`;
+            results.appendChild(span);
+            console.log(message);
+        };
+
+        const clearResults = () => {
+            document.getElementById('results').innerHTML = '';
+        };
+
+        async function testTURN() {
+            clearResults();
+            log('开始测试 TURN 服务器...', 'info');
+            
+            const config = {
+                iceServers: [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    {
+                        urls: [
+                            'turn:a.relay.metered.ca:80',
+                            'turn:a.relay.metered.ca:80?transport=tcp',
+                            'turn:a.relay.metered.ca:443',
+                            'turn:a.relay.metered.ca:443?transport=tcp'
+                        ],
+                        username: 'e1c0ce9dfdab18f097861f1f',
+                        credential: 'sPIE/RbUXEZ7EJ1Q'
+                    }
+                ],
+                iceCandidatePoolSize: 10
+            };
+
+            log('创建 PeerConnection...', 'info');
+            const pc = new RTCPeerConnection(config);
+            
+            const candidates = {
+                host: [],
+                srflx: [],
+                relay: []
+            };
+
+            pc.onicecandidate = (event) => {
+                if (event.candidate) {
+                    const type = event.candidate.type;
+                    const address = event.candidate.address || event.candidate.ip || 'unknown';
+                    const port = event.candidate.port || 'unknown';
+                    const protocol = event.candidate.protocol || 'unknown';
+                    
+                    log(`✅ ICE 候选: ${type} (${protocol}) ${address}:${port}`, 'success');
+                    
+                    if (type === 'relay') {
+                        candidates.relay.push(event.candidate);
+                    } else if (type === 'srflx') {
+                        candidates.srflx.push(event.candidate);
+                    } else if (type === 'host') {
+                        candidates.host.push(event.candidate);
+                    }
+                } else {
+                    log('ICE 收集完成', 'info');
+                    showSummary();
+                }
+            };
+
+            pc.onicegatheringstatechange = () => {
+                log(`ICE 收集状态: ${pc.iceGatheringState}`, 'info');
+            };
+
+            const showSummary = () => {
+                log('\n=== 收集结果摘要 ===', 'info');
+                log(`Host 候选数: ${candidates.host.length}`, 'info');
+                log(`Srflx 候选数: ${candidates.srflx.length}`, 'info');
+                log(`Relay 候选数: ${candidates.relay.length}`, candidates.relay.length > 0 ? 'success' : 'error');
+                
+                if (candidates.relay.length === 0) {
+                    log('\n❌ 没有收集到 TURN (relay) 候选!', 'error');
+                    log('可能原因:', 'error');
+                    log('  1. TURN 服务器不可用或认证失败', 'error');
+                    log('  2. 防火墙阻止了 TURN 连接', 'error');
+                    log('  3. TURN 服务器地址或凭据错误', 'error');
+                } else {
+                    log('\n✅ 成功连接到 TURN 服务器!', 'success');
+                    candidates.relay.forEach((c, i) => {
+                        log(`Relay ${i+1}: ${c.address}:${c.port} (${c.relatedAddress}:${c.relatedPort})`, 'success');
+                    });
+                }
+            };
+
+            try {
+                // 创建一个 offer 来触发 ICE 收集
+                log('创建 DataChannel...', 'info');
+                pc.createDataChannel('test');
+                
+                log('创建 Offer...', 'info');
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                log('✅ Offer 已设置,开始收集 ICE 候选...', 'success');
+                
+                // 等待 ICE 收集完成
+                await new Promise(resolve => {
+                    if (pc.iceGatheringState === 'complete') {
+                        resolve();
+                    } else {
+                        pc.onicegatheringstatechange = () => {
+                            if (pc.iceGatheringState === 'complete') {
+                                resolve();
+                            }
+                        };
+                    }
+                    // 超时保护
+                    setTimeout(resolve, 10000);
+                });
+                
+            } catch (error) {
+                log(`❌ 错误: ${error.message}`, 'error');
+                console.error(error);
+            }
+        }
+    </script>
+</body>
+</html>

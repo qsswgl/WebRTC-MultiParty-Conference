@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "K:\\WebRTC\\WebRTCApp.csproj": {}
+    "k:\\WebRTC\\WebRTCApp.csproj": {}
   },
   "projects": {
-    "K:\\WebRTC\\WebRTCApp.csproj": {
+    "k:\\WebRTC\\WebRTCApp.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "K:\\WebRTC\\WebRTCApp.csproj",
+        "projectUniqueName": "k:\\WebRTC\\WebRTCApp.csproj",
         "projectName": "WebRTCApp",
-        "projectPath": "K:\\WebRTC\\WebRTCApp.csproj",
+        "projectPath": "k:\\WebRTC\\WebRTCApp.csproj",
         "packagesPath": "C:\\Users\\Administrator\\.nuget\\packages\\",
-        "outputPath": "K:\\WebRTC\\obj\\",
+        "outputPath": "k:\\WebRTC\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "C:\\Users\\Administrator\\AppData\\Roaming\\NuGet\\NuGet.Config"

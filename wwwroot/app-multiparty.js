@@ -1,9 +1,15 @@
 // WebRTC 多人会议客户端
 class MultiPartyWebRTCClient {
     constructor() {
+        // 前端版本号（用于排查缓存/版本）
+        this.clientVersion = 'mp-20251024-1730-fix';
         this.connection = null;
         this.peerConnections = new Map(); // userId -> RTCPeerConnection
         this.pendingIceCandidates = new Map(); // userId -> [candidates] - 缓存提前到达的ICE候选
+        this.receivedOfferFrom = new Set(); // 记录已收到对方Offer的用户，避免重复发起
+    this.offerFallbackTimers = new Map(); // userId -> timerId，加入者侧的超时回退
+    this.remoteMediaActive = new Set(); // 已收到远端媒体的用户，用于更稳健的“已连接”判断
+        this.statusPoller = null; // UI 状态轮询器
         this.localStream = null;
         this.roomId = null;
         this.userId = this.generateUserId();
@@ -12,21 +18,29 @@ class MultiPartyWebRTCClient {
         this.isVideoEnabled = false;
         this.remoteUsers = new Set(); // 远程用户ID集合
         
-        // WebRTC配置 - 与简化版相同的配置(已验证可用)
+        // WebRTC配置 - 优化本地测试和NAT穿透
         this.rtcConfig = {
             iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
+                { urls: 'stun:stun.services.mozilla.com' },
                 {
-                    urls: ['turn:a.relay.metered.ca:80'],
+                    urls: ['turn:a.relay.metered.ca:80', 'turn:a.relay.metered.ca:80?transport=tcp', 'turn:a.relay.metered.ca:443', 'turn:a.relay.metered.ca:443?transport=tcp'],
                     username: 'e1c0ce9dfdab18f097861f1f',
                     credential: 'sPIE/RbUXEZ7EJ1Q'
+                },
+                {
+                    urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443'],
+                    username: 'openrelayproject',
+                    credential: 'openrelayproject'
                 }
             ],
             iceCandidatePoolSize: 10,
             iceTransportPolicy: 'all',
             bundlePolicy: 'max-bundle',
-            rtcpMuxPolicy: 'require'
+            rtcpMuxPolicy: 'require',
+            // 增加同机测试支持
+            iceTransportPolicy: 'all' // 允许host/srflx/relay所有候选
         };
         
         console.log('[Config] ICE Servers配置完成(与简化版相同)');
@@ -72,6 +86,7 @@ class MultiPartyWebRTCClient {
     
     async init() {
         console.log('初始化 WebRTC 客户端...');
+        console.log('[Client] 版本:', this.clientVersion);
         
         // 等待 DOM 加载完成
         if (document.readyState === 'loading') {
@@ -134,6 +149,12 @@ class MultiPartyWebRTCClient {
             console.log('收到Offer from:', data.sender);
             if (!this.peerConnections.has(data.sender)) {
                 await this.createPeerConnection(data.sender, false);
+            }
+            // 标记收到Offer，清理回退发起定时器
+            this.receivedOfferFrom.add(data.sender);
+            if (this.offerFallbackTimers.has(data.sender)) {
+                clearTimeout(this.offerFallbackTimers.get(data.sender));
+                this.offerFallbackTimers.delete(data.sender);
             }
             await this.handleOffer(data.sender, data.offer);
         });
@@ -284,6 +305,9 @@ class MultiPartyWebRTCClient {
                 this.showRoomInterface();
                 this.showToast('房间创建成功', 'success');
                 console.log('房间创建成功:', this.roomId);
+
+                // 启动 UI 状态轮询兜底（防止某些浏览器漏掉事件导致不刷新）
+                this.startStatusPolling();
             }
         } catch (error) {
             console.error('创建房间失败:', error);
@@ -318,14 +342,33 @@ class MultiPartyWebRTCClient {
                 this.showRoomInterface();
                 this.showToast('已加入房间', 'success');
                 console.log('加入房间成功:', roomId, '已有成员:', result.members);
+
+                // 启动 UI 状态轮询兜底
+                this.startStatusPolling();
                 
                 // 仅记录已有成员，等待对方(已有成员)发起连接，避免双端同时发起导致 glare
                 if (result.members && result.members.length > 0) {
                     for (const member of result.members) {
                         this.remoteUsers.add(member.userId);
+
+                        // 设置一个短暂的超时回退（例如3秒）：如果未收到对方的Offer，则主动发起一次
+                        const uid = member.userId;
+                        if (this.offerFallbackTimers.has(uid)) {
+                            clearTimeout(this.offerFallbackTimers.get(uid));
+                        }
+                        const timerId = setTimeout(async () => {
+                            if (!this.receivedOfferFrom.has(uid)) {
+                                console.warn(`[joinRoom] 未收到 ${uid} 的 Offer，触发回退：由加入者主动发起`);
+                                if (!this.peerConnections.has(uid)) {
+                                    await this.createPeerConnection(uid, true);
+                                }
+                            }
+                            this.offerFallbackTimers.delete(uid);
+                        }, 3000);
+                        this.offerFallbackTimers.set(uid, timerId);
                     }
                     this.updateUserList();
-                    console.log(`[joinRoom] 房间里已有 ${result.members.length} 人，作为加入者将等待对方的 Offer`);
+                    console.log(`[joinRoom] 房间里已有 ${result.members.length} 人，作为加入者将等待对方的 Offer(含3秒回退)`);
                 }
             }
         } catch (error) {
@@ -347,6 +390,23 @@ class MultiPartyWebRTCClient {
             this.startAudioLevelMonitoring();
             
             console.log('本地媒体流获取成功');
+
+            // 如果已有 PeerConnection 存在（例如先协商后拿流的时序），为每个连接补挂本地轨道
+            for (const [uid, pc] of this.peerConnections.entries()) {
+                try {
+                    const senders = pc.getSenders();
+                    const hasAudio = senders.some(s => s.track && s.track.kind === 'audio');
+                    if (!hasAudio) {
+                        const track = this.localStream.getAudioTracks()[0];
+                        if (track) {
+                            pc.addTrack(track, this.localStream);
+                            console.log(`[getUserMedia] 已向 ${uid} 补挂本地音频轨道`);
+                        }
+                    }
+                } catch (e) {
+                    console.warn(`[getUserMedia] 向 ${uid} 补挂轨道失败:`, e);
+                }
+            }
         } catch (error) {
             console.error('获取媒体流失败:', error);
             this.showToast('无法访问麦克风', 'error');
@@ -466,17 +526,28 @@ class MultiPartyWebRTCClient {
         const pc = new RTCPeerConnection(this.rtcConfig);
         this.peerConnections.set(userId, pc);
         
-        // 添加本地流
-        console.log(`[createPeerConnection] 添加本地轨道...`);
-        this.localStream.getTracks().forEach(track => {
-            console.log(`[createPeerConnection] 添加轨道: ${track.kind}, enabled: ${track.enabled}, readyState: ${track.readyState}`);
-            pc.addTrack(track, this.localStream);
-        });
+        // 添加本地流；若此时本地流尚未就绪，添加一个 recvonly 的音频收发器，避免因时序导致的协商失败
+        console.log(`[createPeerConnection] 添加本地轨道/或占位收发器...`);
+        if (this.localStream && this.localStream.getTracks().length > 0) {
+            this.localStream.getTracks().forEach(track => {
+                console.log(`[createPeerConnection] 添加轨道: ${track.kind}, enabled: ${track.enabled}, readyState: ${track.readyState}`);
+                pc.addTrack(track, this.localStream);
+            });
+        } else {
+            try {
+                pc.addTransceiver('audio', { direction: 'recvonly' });
+                console.log('[createPeerConnection] 本地流未就绪，已添加 recvonly 音频收发器作为占位');
+            } catch (e) {
+                console.warn('[createPeerConnection] 添加 recvonly 失败(可能不支持):', e);
+            }
+        }
         
         // 处理远程流
         pc.ontrack = (event) => {
             console.log(`[ontrack] 收到远程流 from ${userId}:`, event.track.kind);
             this.handleRemoteTrack(userId, event);
+            // 收到远端媒体通常意味着 ICE 已连通，立即刷新连接统计
+            this.updateConnectionStatus();
         };
         
         // 处理ICE候选
@@ -501,13 +572,28 @@ class MultiPartyWebRTCClient {
         // ICE连接状态
         pc.oniceconnectionstatechange = () => {
             console.log(`[ICE] ${userId} 连接状态: ${pc.iceConnectionState}`);
-            if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
-                console.warn(`[ICE] ⚠️ ${userId} ICE连接失败,尝试重启ICE...`);
+            if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+                console.log(`[ICE] ✅ ${userId} ICE连接成功`);
+                // 立即刷新UI
+                this.updateConnectionStatus();
+            } else if (pc.iceConnectionState === 'failed') {
+                console.warn(`[ICE] ❌ ${userId} ICE连接失败,尝试重启ICE...`);
                 // 尝试重启 ICE
                 if (pc.restartIce) {
                     pc.restartIce();
                 }
+            } else if (pc.iceConnectionState === 'disconnected') {
+                console.warn(`[ICE] ⚠️ ${userId} ICE断开连接`);
+                // disconnected 可能是暂时的，等待一会儿再重启
+                setTimeout(() => {
+                    if (pc.iceConnectionState === 'disconnected' && pc.restartIce) {
+                        console.warn(`[ICE] ${userId} 持续断开，尝试重启ICE...`);
+                        pc.restartIce();
+                    }
+                }, 3000);
             }
+            // 无论状态为何，变化时刷新一次 UI 统计，避免仅依赖 connectionState 导致显示不一致
+            this.updateConnectionStatus();
         };
         
         // ICE 收集状态
@@ -551,12 +637,25 @@ class MultiPartyWebRTCClient {
                 return;
             }
             
+            // 最小 perfect negotiation：非 stable 状态先回滚，避免 glare
+            if (pc.signalingState !== 'stable') {
+                try {
+                    console.warn(`[handleOffer] signalingState=${pc.signalingState}，先进行 rollback`);
+                    await pc.setLocalDescription({ type: 'rollback' });
+                } catch (rbErr) {
+                    console.warn('[handleOffer] rollback 失败(可忽略):', rbErr);
+                }
+            }
+
             console.log(`[handleOffer] 设置远程描述...`);
             await pc.setRemoteDescription(new RTCSessionDescription(offer));
             console.log(`[handleOffer] ✅ 远程描述已设置`);
             
             // 处理缓存的 ICE 候选
             await this.processPendingIceCandidates(userId);
+
+            // 刷新一次 UI 状态
+            this.updateConnectionStatus();
             
             console.log(`[handleOffer] 创建 Answer...`);
             const answer = await pc.createAnswer({
@@ -569,6 +668,9 @@ class MultiPartyWebRTCClient {
             console.log(`[handleOffer] 发送 Answer 到 ${userId}`);
             await this.connection.invoke("SendAnswer", userId, answer);
             console.log(`[handleOffer] ✅ Answer已发送`);
+
+            // 刷新一次 UI 状态
+            this.updateConnectionStatus();
         } catch (error) {
             console.error('[handleOffer] 处理Offer失败:', error);
         }
@@ -584,12 +686,26 @@ class MultiPartyWebRTCClient {
                 return;
             }
             
+            if (pc.signalingState === 'have-local-offer') {
+                // 正常路径
+            } else if (pc.signalingState !== 'stable') {
+                try {
+                    console.warn(`[handleAnswer] signalingState=${pc.signalingState}，尝试 rollback`);
+                    await pc.setLocalDescription({ type: 'rollback' });
+                } catch (rbErr) {
+                    console.warn('[handleAnswer] rollback 失败(可忽略):', rbErr);
+                }
+            }
+
             console.log(`[handleAnswer] 设置远程描述...`);
             await pc.setRemoteDescription(new RTCSessionDescription(answer));
             console.log(`[handleAnswer] ✅ Answer 处理完成: ${userId}`);
             
             // 处理缓存的 ICE 候选
             await this.processPendingIceCandidates(userId);
+
+            // 刷新一次 UI 状态
+            this.updateConnectionStatus();
         } catch (error) {
             console.error('[handleAnswer] 处理Answer失败:', error);
         }
@@ -720,6 +836,9 @@ class MultiPartyWebRTCClient {
             audioEl.onerror = (err) => {
                 console.error(`[Audio] 错误: ${userId}`, err);
             };
+            // 标记该用户已收到远端媒体
+            this.remoteMediaActive.add(userId);
+            this.updateConnectionStatus();
             
         } else if (track.kind === 'video') {
             console.log(`[handleRemoteTrack] 设置视频流到 video-${userId}`);
@@ -732,6 +851,9 @@ class MultiPartyWebRTCClient {
             videoEl.oncanplay = () => {
                 console.log(`[Video] canplay - 视频可以播放: ${userId}`);
             };
+            // 标记已收到远端媒体
+            this.remoteMediaActive.add(userId);
+            this.updateConnectionStatus();
         }
     }
     
@@ -744,6 +866,8 @@ class MultiPartyWebRTCClient {
         
         // 清除缓存的 ICE 候选
         this.pendingIceCandidates.delete(userId);
+    // 清理远端媒体标记
+    this.remoteMediaActive.delete(userId);
         
         // 移除UI元素
         const mediaContainer = document.getElementById(`remote-${userId}`);
@@ -769,6 +893,9 @@ class MultiPartyWebRTCClient {
             pc.close();
         }
         this.peerConnections.clear();
+
+        // 停止状态轮询
+        this.stopStatusPolling();
         
         // 停止本地流
         if (this.localStream) {
@@ -790,6 +917,33 @@ class MultiPartyWebRTCClient {
         document.getElementById('localVideo').srcObject = null;
         document.getElementById('remoteUsers').innerHTML = '';
     }
+
+    startStatusPolling() {
+        // 已有轮询就不重复开启
+        if (this.statusPoller) return;
+        this.statusPoller = setInterval(() => {
+            try {
+                this.updateConnectionStatus();
+                const allPeers = Array.from(this.peerConnections.values());
+                const ok = allPeers.some(pc => pc.connectionState === 'connected' || pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed');
+                if (ok) {
+                    // 一旦检测到有连接，立即停止轮询
+                    this.stopStatusPolling();
+                }
+            } catch (_) {
+                // 忽略单次异常
+            }
+        }, 1000);
+        console.log('[statusPolling] 已启动 UI 状态轮询兜底');
+    }
+
+    stopStatusPolling() {
+        if (this.statusPoller) {
+            clearInterval(this.statusPoller);
+            this.statusPoller = null;
+            console.log('[statusPolling] 已停止 UI 状态轮询');
+        }
+    }
     
     showRoomInterface() {
         document.getElementById('welcomeCard').classList.add('hidden');
@@ -809,16 +963,25 @@ class MultiPartyWebRTCClient {
     
     updateConnectionStatus() {
         const allPeers = Array.from(this.peerConnections.entries());
-        const connectedCount = allPeers.filter(([_, pc]) => pc.connectionState === 'connected').length;
-        
+        // 兼容不同浏览器：当 connectionState 还未到 connected，但 ICE 已 connected/completed 时同样视为已连通
+        const isPeerConnected = (pc) => {
+            const cs = pc.connectionState;
+            const ice = pc.iceConnectionState;
+            return cs === 'connected' || ice === 'connected' || ice === 'completed';
+        };
+        const connectedCount = allPeers.filter(([uid, pc]) => {
+            const mediaOk = this.remoteMediaActive.has(uid) || !!(document.getElementById(`audio-${uid}`)?.srcObject?.getTracks()?.length);
+            return isPeerConnected(pc) || mediaOk;
+        }).length;
+
         console.log(`[updateConnectionStatus] 总连接数: ${allPeers.length}, 已连接: ${connectedCount}`);
         allPeers.forEach(([userId, pc]) => {
             console.log(`  - ${userId.substring(0, 8)}: ${pc.connectionState} (ICE: ${pc.iceConnectionState})`);
         });
-        
+
         const statusEl = document.getElementById('connectionStatus');
         statusEl.textContent = `已连接: ${connectedCount} 人`;
-        
+
         if (connectedCount > 0) {
             statusEl.classList.add('connected');
             statusEl.classList.remove('disconnected');

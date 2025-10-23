@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>简单两人通话测试</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>🎤 简单两人通话测试</h1>
+        <p>简化版WebRTC点对点通话</p>
+        
+        <!-- 设置面板 -->
+        <div id="setupPanel">
+            <div class="panel">
+                <h2>开始通话</h2>
+                <button id="createRoomBtn" class="btn btn-primary">创建房间</button>
+                <div class="divider">或</div>
+                <input type="text" id="roomIdInput" placeholder="输入房间ID">
+                <button id="joinRoomBtn" class="btn btn-secondary">加入房间</button>
+            </div>
+        </div>
+        
+        <!-- 房间面板 -->
+        <div id="roomPanel" style="display: none;">
+            <div class="panel">
+                <h2>房间信息</h2>
+                <p>房间ID: <strong id="roomIdDisplay"></strong></p>
+                <p>分享链接: <input type="text" id="shareLink" readonly style="width: 100%;"></p>
+                <p id="connectionStatus">连接状态: 未连接</p>
+                
+                <h3>本地音频</h3>
+                <audio id="localAudio" autoplay muted></audio>
+                
+                <h3>远程音频</h3>
+                <audio id="remoteAudio" autoplay></audio>
+                
+                <button id="leaveRoomBtn" class="btn btn-danger">离开房间</button>
+            </div>
+        </div>
+        
+        <div class="debug-info">
+            <p>打开浏览器控制台(F12)查看详细日志</p>
+        </div>
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@microsoft/signalr@8.0.0/dist/browser/signalr.min.js"></script>
+    <script src="app-simple-p2p.js"></script>
+</body>
+</html>

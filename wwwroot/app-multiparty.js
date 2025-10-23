@@ -163,31 +163,59 @@ class MultiPartyWebRTCClient {
     
     setupEventListeners() {
         console.log('=== 设置事件监听器 ===');
-        
+
+        // 全局点击日志，辅助排查是否被遮挡或点击被吞
+        document.addEventListener('click', (e) => {
+            const target = e.target;
+            if (target && target.id) {
+                console.log('[全局点击] ->', `#${target.id}`, 'tag:', target.tagName);
+            }
+        }, { capture: true });
+
         const createBtn = document.getElementById('createRoomBtn');
         console.log('创建按钮元素:', createBtn);
-        
+
         if (createBtn) {
-            createBtn.addEventListener('click', () => {
-                console.log('创建聊天室按钮被点击');
-                this.createRoom();
-            });
-            console.log('✅ 创建按钮事件已绑定');
+            const onCreate = (evtName) => {
+                return (e) => {
+                    console.log(`创建聊天室按钮事件触发: ${evtName}`);
+                    // 防止重复触发
+                    e.preventDefault?.();
+                    e.stopPropagation?.();
+                    this.showToast('正在创建聊天室...', 'info');
+                    this.createRoom();
+                };
+            };
+
+            // 绑定多种事件，兼容不同输入环境
+            createBtn.addEventListener('click', onCreate('click'));
+            createBtn.addEventListener('pointerdown', onCreate('pointerdown'));
+            createBtn.addEventListener('touchend', onCreate('touchend'));
+            console.log('✅ 创建按钮事件已绑定 (click/pointerdown/touchend)');
         } else {
             console.error('❌ 找不到创建按钮元素!');
         }
-        
+
         const joinBtn = document.getElementById('joinRoomBtn');
         if (joinBtn) {
-            joinBtn.addEventListener('click', () => {
-                const roomId = document.getElementById('roomIdInput').value.trim();
-                if (roomId) {
-                    this.joinRoom(roomId);
-                } else {
-                    this.showToast('请输入房间号', 'error');
-                }
-            });
-            console.log('✅ 加入按钮事件已绑定');
+            const onJoin = (evtName) => {
+                return (e) => {
+                    console.log(`加入按钮事件触发: ${evtName}`);
+                    e.preventDefault?.();
+                    e.stopPropagation?.();
+                    const roomId = document.getElementById('roomIdInput').value.trim();
+                    if (roomId) {
+                        this.joinRoom(roomId);
+                    } else {
+                        this.showToast('请输入房间号', 'error');
+                    }
+                };
+            };
+
+            joinBtn.addEventListener('click', onJoin('click'));
+            joinBtn.addEventListener('pointerdown', onJoin('pointerdown'));
+            joinBtn.addEventListener('touchend', onJoin('touchend'));
+            console.log('✅ 加入按钮事件已绑定 (click/pointerdown/touchend)');
         } else {
             console.error('❌ 找不到加入按钮元素!');
         }

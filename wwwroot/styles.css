@@ -476,7 +476,7 @@ footer {
 }
 
 
-/* 多人会议样式 */
+/* 锟斤拷锟剿伙拷锟斤拷锟斤拷式 */
 .user-list-section {
     margin: 20px 0;
     padding: 15px;
@@ -560,7 +560,7 @@ footer {
     display: none;
 }
 
-/* 本地视频容器调整 */
+/* 锟斤拷锟斤拷锟斤拷频锟斤拷锟斤拷锟斤拷锟斤拷 */
 .video-container {
     margin: 20px 0;
 }
@@ -573,7 +573,7 @@ footer {
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
-/* Toast 消息样式更新 */
+/* Toast 锟斤拷息锟斤拷式锟斤拷锟斤拷 */
 .toast {
     position: fixed;
     bottom: 30px;
@@ -588,6 +588,7 @@ footer {
     opacity: 0;
     transition: all 0.3s ease;
     font-size: 0.95em;
+    pointer-events: none; /* 闃叉 toast 鎷︽埅鐐瑰嚮浜嬩欢 */
 }
 
 .toast.show {
@@ -607,7 +608,7 @@ footer {
     background: #17a2b8;
 }
 
-/* 响应式网格布局 */
+/* 锟斤拷应式锟斤拷锟今布撅拷 */
 @media (max-width: 768px) {
     .remote-users-grid {
         grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));

@@ -11,6 +11,7 @@ services:
       - "8096:8096"
     volumes:
       - ./certs:/app/certs:ro
+      - ./wwwroot:/app/wwwroot:ro
     environment:
       - ASPNETCORE_URLS=https://+:8096
       - ASPNETCORE_ENVIRONMENT=Production

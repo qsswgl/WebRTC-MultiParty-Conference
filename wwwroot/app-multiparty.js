@@ -12,35 +12,38 @@ class MultiPartyWebRTCClient {
         this.isVideoEnabled = false;
         this.remoteUsers = new Set(); // 远程用户ID集合
         
-        // WebRTC配置 - 添加多个STUN服务器和公共TURN服务器
+        // WebRTC配置 - 使用可靠的 TURN 服务器
         this.rtcConfig = {
             iceServers: [
+                // Google STUN
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
-                { urls: 'stun:stun2.l.google.com:19302' },
-                { urls: 'stun:stun.stunprotocol.org:3478' },
-                // 使用公共的 TURN 服务器 (开放测试)
+                // Metered.ca TURN (免费额度)
                 {
-                    urls: 'turn:openrelay.metered.ca:80',
-                    username: 'openrelayproject',
-                    credential: 'openrelayproject'
+                    urls: [
+                        'turn:a.relay.metered.ca:80',
+                        'turn:a.relay.metered.ca:80?transport=tcp',
+                        'turn:a.relay.metered.ca:443',
+                        'turn:a.relay.metered.ca:443?transport=tcp'
+                    ],
+                    username: 'e1c0ce9dfdab18f097861f1f',
+                    credential: 'sPIE/RbUXEZ7EJ1Q'
                 },
+                // 备用 OpenRelay TURN
                 {
-                    urls: 'turn:openrelay.metered.ca:443',
-                    username: 'openrelayproject',
-                    credential: 'openrelayproject'
-                },
-                {
-                    urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+                    urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443'],
                     username: 'openrelayproject',
                     credential: 'openrelayproject'
                 }
             ],
             iceCandidatePoolSize: 10,
-            iceTransportPolicy: 'all', // 尝试所有可用的连接方式
+            iceTransportPolicy: 'all',
             bundlePolicy: 'max-bundle',
             rtcpMuxPolicy: 'require'
         };
+        
+        console.log('[Config] ICE Servers配置完成, 包含', this.rtcConfig.iceServers.length, '组服务器');
+        console.log('[Config] ICE Transport Policy:', this.rtcConfig.iceTransportPolicy);
         
         // 音频约束 - 优化回声消除和低延迟
         this.audioConstraints = {
@@ -504,14 +507,17 @@ class MultiPartyWebRTCClient {
             if (event.candidate) {
                 const candidateType = event.candidate.type || 'unknown';
                 const protocol = event.candidate.protocol || '';
-                console.log(`[ICE] 发送候选到 ${userId}: ${candidateType} (${protocol})`);
+                const address = event.candidate.address || '';
+                const port = event.candidate.port || '';
+                console.log(`[ICE] 发送候选到 ${userId}: ${candidateType} (${protocol}) ${address}:${port}`);
+                console.log(`[ICE] 候选详情:`, event.candidate);
                 try {
                     await this.connection.invoke("SendIceCandidate", userId, event.candidate);
                 } catch (err) {
                     console.error('[ICE] 发送ICE候选失败:', err);
                 }
             } else {
-                console.log(`[ICE] ICE收集完成: ${userId}`);
+                console.log(`[ICE] ✅ ICE收集完成: ${userId}`);
             }
         };
         
@@ -546,9 +552,12 @@ class MultiPartyWebRTCClient {
                     offerToReceiveAudio: true,
                     offerToReceiveVideo: true
                 });
+                console.log(`[Offer] SDP类型: ${offer.type}, 包含音频: ${offer.sdp.includes('m=audio')}, 包含视频: ${offer.sdp.includes('m=video')}`);
                 await pc.setLocalDescription(offer);
+                console.log(`[Offer] 本地描述已设置`);
                 console.log(`[Offer] 发送 Offer 到 ${userId}`);
                 await this.connection.invoke("SendOffer", userId, offer);
+                console.log(`[Offer] ✅ Offer已发送`);
             } catch (error) {
                 console.error('[Offer] 创建Offer失败:', error);
             }
@@ -558,6 +567,7 @@ class MultiPartyWebRTCClient {
     async handleOffer(userId, offer) {
         try {
             console.log(`[handleOffer] 收到来自 ${userId} 的 Offer`);
+            console.log(`[handleOffer] Offer SDP类型: ${offer.type}, 包含音频: ${offer.sdp?.includes('m=audio')}, 包含视频: ${offer.sdp?.includes('m=video')}`);
             const pc = this.peerConnections.get(userId);
             if (!pc) {
                 console.error(`[handleOffer] 找不到 PeerConnection: ${userId}`);
@@ -572,10 +582,16 @@ class MultiPartyWebRTCClient {
             await this.processPendingIceCandidates(userId);
             
             console.log(`[handleOffer] 创建 Answer...`);
-            const answer = await pc.createAnswer();
+            const answer = await pc.createAnswer({
+                offerToReceiveAudio: true,
+                offerToReceiveVideo: true
+            });
+            console.log(`[handleOffer] Answer SDP类型: ${answer.type}, 包含音频: ${answer.sdp.includes('m=audio')}, 包含视频: ${answer.sdp.includes('m=video')}`);
             await pc.setLocalDescription(answer);
+            console.log(`[handleOffer] 本地描述(Answer)已设置`);
             console.log(`[handleOffer] 发送 Answer 到 ${userId}`);
             await this.connection.invoke("SendAnswer", userId, answer);
+            console.log(`[handleOffer] ✅ Answer已发送`);
         } catch (error) {
             console.error('[handleOffer] 处理Offer失败:', error);
         }
@@ -584,6 +600,7 @@ class MultiPartyWebRTCClient {
     async handleAnswer(userId, answer) {
         try {
             console.log(`[handleAnswer] 收到来自 ${userId} 的 Answer`);
+            console.log(`[handleAnswer] Answer SDP类型: ${answer.type}, 包含音频: ${answer.sdp?.includes('m=audio')}, 包含视频: ${answer.sdp?.includes('m=video')}`);
             const pc = this.peerConnections.get(userId);
             if (!pc) {
                 console.error(`[handleAnswer] 找不到 PeerConnection: ${userId}`);
@@ -806,8 +823,13 @@ class MultiPartyWebRTCClient {
     }
     
     updateConnectionStatus() {
-        const connectedCount = Array.from(this.peerConnections.values())
-            .filter(pc => pc.connectionState === 'connected').length;
+        const allPeers = Array.from(this.peerConnections.entries());
+        const connectedCount = allPeers.filter(([_, pc]) => pc.connectionState === 'connected').length;
+        
+        console.log(`[updateConnectionStatus] 总连接数: ${allPeers.length}, 已连接: ${connectedCount}`);
+        allPeers.forEach(([userId, pc]) => {
+            console.log(`  - ${userId.substring(0, 8)}: ${pc.connectionState} (ICE: ${pc.iceConnectionState})`);
+        });
         
         const statusEl = document.getElementById('connectionStatus');
         statusEl.textContent = `已连接: ${connectedCount} 人`;

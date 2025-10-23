@@ -123,7 +123,7 @@ class MultiPartyWebRTCClient {
             this.updateUserList();
             this.showToast(`用户 ${data.userId.substring(0, 8)} 加入房间`, 'info');
             
-            // 主动向新用户发起连接
+            // 只有房主或已在房间的成员在新用户加入时充当发起者，防止两端同时发起导致 glare
             if (!this.peerConnections.has(data.userId)) {
                 await this.createPeerConnection(data.userId, true);
             }
@@ -319,23 +319,13 @@ class MultiPartyWebRTCClient {
                 this.showToast('已加入房间', 'success');
                 console.log('加入房间成功:', roomId, '已有成员:', result.members);
                 
-                // 与房间内已有成员建立连接 (必须在获取媒体流之后)
-                if (result.members && result.members.length > 0 && this.localStream) {
-                    console.log(`[joinRoom] 向 ${result.members.length} 个已有成员发起连接...`);
-                    for (const member of result.members) {
-                        this.remoteUsers.add(member.userId);
-                        // 主动向已有成员发起 PeerConnection (作为发起者)
-                        console.log(`[joinRoom] 向成员 ${member.userId} 发起连接`);
-                        await this.createPeerConnection(member.userId, true);
-                    }
-                    this.updateUserList();
-                } else if (result.members && result.members.length > 0 && !this.localStream) {
-                    console.warn('[joinRoom] 没有本地流,无法建立 P2P 连接');
-                    // 仍然添加到用户列表
+                // 仅记录已有成员，等待对方(已有成员)发起连接，避免双端同时发起导致 glare
+                if (result.members && result.members.length > 0) {
                     for (const member of result.members) {
                         this.remoteUsers.add(member.userId);
                     }
                     this.updateUserList();
+                    console.log(`[joinRoom] 房间里已有 ${result.members.length} 人，作为加入者将等待对方的 Offer`);
                 }
             }
         } catch (error) {

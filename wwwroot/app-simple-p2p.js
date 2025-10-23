@@ -175,11 +175,56 @@ class SimpleP2PClient {
                 video: false
             });
             
-            document.getElementById('localAudio').srcObject = this.localStream;
+            const audioTracks = this.localStream.getAudioTracks();
             console.log('[Media] 本地音频流获取成功');
+            console.log('[Media] 音频轨道数:', audioTracks.length);
+            audioTracks.forEach((track, index) => {
+                console.log(`[Media] 轨道${index}: ${track.label}, enabled: ${track.enabled}, readyState: ${track.readyState}`);
+            });
+            
+            document.getElementById('localAudio').srcObject = this.localStream;
+            
+            // 监控音频电平(确认麦克风在工作)
+            this.startAudioLevelMonitoring();
         } catch (error) {
             console.error('[Media] 获取失败:', error);
             throw error;
+        }
+    }
+    
+    startAudioLevelMonitoring() {
+        if (!this.localStream) return;
+        
+        try {
+            const audioContext = new AudioContext();
+            const source = audioContext.createMediaStreamSource(this.localStream);
+            const analyzer = audioContext.createAnalyser();
+            analyzer.fftSize = 256;
+            source.connect(analyzer);
+            
+            const dataArray = new Uint8Array(analyzer.frequencyBinCount);
+            let silenceCount = 0;
+            
+            const checkLevel = () => {
+                analyzer.getByteFrequencyData(dataArray);
+                const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
+                
+                if (average > 0) {
+                    if (silenceCount > 10) {
+                        console.log('[Audio Monitor] 🎤 检测到声音! 电平:', average.toFixed(2));
+                    }
+                    silenceCount = 0;
+                } else {
+                    silenceCount++;
+                    if (silenceCount === 20) {
+                        console.warn('[Audio Monitor] ⚠️ 长时间无声音输入,请检查麦克风');
+                    }
+                }
+            };
+            
+            setInterval(checkLevel, 500);
+        } catch (err) {
+            console.warn('[Audio Monitor] 无法启动音频监控:', err);
         }
     }
     
@@ -199,9 +244,40 @@ class SimpleP2PClient {
         // 处理远程流
         this.peerConnection.ontrack = (event) => {
             console.log('[PC] 收到远程流:', event.track.kind);
+            console.log('[PC] Stream ID:', event.streams[0].id);
+            console.log('[PC] Track状态:', event.track.readyState, 'enabled:', event.track.enabled);
+            
             const remoteAudio = document.getElementById('remoteAudio');
             remoteAudio.srcObject = event.streams[0];
-            this.showToast('✅ 音频连接成功!', 'success');
+            
+            // 监听音频元素事件
+            remoteAudio.onloadedmetadata = () => {
+                console.log('[Audio] 远程音频元数据已加载');
+            };
+            
+            remoteAudio.oncanplay = () => {
+                console.log('[Audio] 远程音频可以播放');
+                // 强制播放
+                remoteAudio.play().then(() => {
+                    console.log('[Audio] ✅ 远程音频开始播放! volume:', remoteAudio.volume);
+                    this.showToast('✅ 音频连接成功!', 'success');
+                }).catch(err => {
+                    console.error('[Audio] ❌ 播放失败:', err);
+                    this.showToast('音频播放失败: ' + err.message, 'error');
+                });
+            };
+            
+            remoteAudio.onplay = () => {
+                console.log('[Audio] play 事件触发');
+            };
+            
+            remoteAudio.onerror = (err) => {
+                console.error('[Audio] 音频错误:', err);
+            };
+            
+            // 确保音量是1.0
+            remoteAudio.volume = 1.0;
+            remoteAudio.muted = false;
         };
         
         // 处理 ICE 候选

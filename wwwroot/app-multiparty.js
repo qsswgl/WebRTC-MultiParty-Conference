@@ -12,28 +12,15 @@ class MultiPartyWebRTCClient {
         this.isVideoEnabled = false;
         this.remoteUsers = new Set(); // 远程用户ID集合
         
-        // WebRTC配置 - 使用可靠的 TURN 服务器
+        // WebRTC配置 - 与简化版相同的配置(已验证可用)
         this.rtcConfig = {
             iceServers: [
-                // Google STUN
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
-                // Metered.ca TURN (免费额度)
                 {
-                    urls: [
-                        'turn:a.relay.metered.ca:80',
-                        'turn:a.relay.metered.ca:80?transport=tcp',
-                        'turn:a.relay.metered.ca:443',
-                        'turn:a.relay.metered.ca:443?transport=tcp'
-                    ],
+                    urls: ['turn:a.relay.metered.ca:80'],
                     username: 'e1c0ce9dfdab18f097861f1f',
                     credential: 'sPIE/RbUXEZ7EJ1Q'
-                },
-                // 备用 OpenRelay TURN
-                {
-                    urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443'],
-                    username: 'openrelayproject',
-                    credential: 'openrelayproject'
                 }
             ],
             iceCandidatePoolSize: 10,
@@ -42,7 +29,7 @@ class MultiPartyWebRTCClient {
             rtcpMuxPolicy: 'require'
         };
         
-        console.log('[Config] ICE Servers配置完成, 包含', this.rtcConfig.iceServers.length, '组服务器');
+        console.log('[Config] ICE Servers配置完成(与简化版相同)');
         console.log('[Config] ICE Transport Policy:', this.rtcConfig.iceTransportPolicy);
         
         // 音频约束 - 优化回声消除和低延迟
@@ -694,6 +681,7 @@ class MultiPartyWebRTCClient {
             audioEl.autoplay = true;
             audioEl.playsInline = true;
             audioEl.volume = 1.0;
+            audioEl.muted = false; // 确保不是静音
             
             const videoEl = document.createElement('video');
             videoEl.id = `video-${userId}`;
@@ -717,16 +705,23 @@ class MultiPartyWebRTCClient {
             console.log(`[handleRemoteTrack] 设置音频流到 audio-${userId}`);
             audioEl.srcObject = stream;
             
-            // 监听音频元素事件
+            // 监听音频元素事件 - 关键修复!
             audioEl.onloadedmetadata = () => {
                 console.log(`[Audio] loadedmetadata - 音频元数据已加载: ${userId}`);
             };
             audioEl.oncanplay = () => {
                 console.log(`[Audio] canplay - 音频可以播放: ${userId}`);
+                // 强制播放 - 这是关键!
                 audioEl.play().then(() => {
                     console.log(`[Audio] ✅ 音频开始播放: ${userId}, volume: ${audioEl.volume}`);
                 }).catch(err => {
                     console.error(`[Audio] ❌ 音频播放失败: ${userId}`, err);
+                    // 尝试用户交互后再播放
+                    document.addEventListener('click', () => {
+                        audioEl.play().then(() => {
+                            console.log(`[Audio] ✅ 点击后音频播放成功: ${userId}`);
+                        }).catch(e => console.error(`[Audio] 仍然失败:`, e));
+                    }, { once: true });
                 });
             };
             audioEl.onplay = () => {

@@ -3,6 +3,7 @@ class MultiPartyWebRTCClient {
     constructor() {
         this.connection = null;
         this.peerConnections = new Map(); // userId -> RTCPeerConnection
+        this.pendingIceCandidates = new Map(); // userId -> [candidates] - 缓存提前到达的ICE候选
         this.localStream = null;
         this.roomId = null;
         this.userId = this.generateUserId();
@@ -565,6 +566,11 @@ class MultiPartyWebRTCClient {
             
             console.log(`[handleOffer] 设置远程描述...`);
             await pc.setRemoteDescription(new RTCSessionDescription(offer));
+            console.log(`[handleOffer] ✅ 远程描述已设置`);
+            
+            // 处理缓存的 ICE 候选
+            await this.processPendingIceCandidates(userId);
+            
             console.log(`[handleOffer] 创建 Answer...`);
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
@@ -587,6 +593,9 @@ class MultiPartyWebRTCClient {
             console.log(`[handleAnswer] 设置远程描述...`);
             await pc.setRemoteDescription(new RTCSessionDescription(answer));
             console.log(`[handleAnswer] ✅ Answer 处理完成: ${userId}`);
+            
+            // 处理缓存的 ICE 候选
+            await this.processPendingIceCandidates(userId);
         } catch (error) {
             console.error('[handleAnswer] 处理Answer失败:', error);
         }
@@ -602,14 +611,40 @@ class MultiPartyWebRTCClient {
                 return;
             }
             
-            if (pc.remoteDescription) {
+            // 检查远程描述是否已设置
+            if (pc.remoteDescription && pc.remoteDescription.type) {
+                // 远程描述已设置,直接添加候选
                 await pc.addIceCandidate(new RTCIceCandidate(candidate));
                 console.log(`[handleIceCandidate] ✅ ICE候选已添加: ${userId} (${candidateType})`);
             } else {
-                console.warn(`[handleIceCandidate] 远程描述未设置,跳过候选: ${userId}`);
+                // 远程描述未设置,缓存候选
+                console.log(`[handleIceCandidate] 缓存ICE候选 (等待远程描述): ${userId} (${candidateType})`);
+                if (!this.pendingIceCandidates.has(userId)) {
+                    this.pendingIceCandidates.set(userId, []);
+                }
+                this.pendingIceCandidates.get(userId).push(candidate);
             }
         } catch (error) {
             console.error('[handleIceCandidate] 添加ICE候选失败:', error);
+        }
+    }
+    
+    async processPendingIceCandidates(userId) {
+        const pending = this.pendingIceCandidates.get(userId);
+        if (pending && pending.length > 0) {
+            console.log(`[processPendingIceCandidates] 处理 ${pending.length} 个缓存的ICE候选: ${userId}`);
+            const pc = this.peerConnections.get(userId);
+            if (pc) {
+                for (const candidate of pending) {
+                    try {
+                        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+                        console.log(`[processPendingIceCandidates] ✅ 已添加缓存候选: ${candidate.type || 'unknown'}`);
+                    } catch (error) {
+                        console.error('[processPendingIceCandidates] 添加失败:', error);
+                    }
+                }
+            }
+            this.pendingIceCandidates.delete(userId);
         }
     }
     
@@ -704,6 +739,9 @@ class MultiPartyWebRTCClient {
             pc.close();
             this.peerConnections.delete(userId);
         }
+        
+        // 清除缓存的 ICE 候选
+        this.pendingIceCandidates.delete(userId);
         
         // 移除UI元素
         const mediaContainer = document.getElementById(`remote-${userId}`);

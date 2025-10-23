@@ -2,7 +2,7 @@
 class MultiPartyWebRTCClient {
     constructor() {
         // 前端版本号（用于排查缓存/版本）
-        this.clientVersion = 'mp-20251024-1730-fix';
+        this.clientVersion = 'mp-20251024-1745-stable';
         this.connection = null;
         this.peerConnections = new Map(); // userId -> RTCPeerConnection
         this.pendingIceCandidates = new Map(); // userId -> [candidates] - 缓存提前到达的ICE候选
@@ -569,21 +569,42 @@ class MultiPartyWebRTCClient {
             }
         };
         
-        // ICE连接状态
+        // ICE连接状态 - 带稳定性检测
+        let iceStableTimer = null;
+        let lastIceState = null;
         pc.oniceconnectionstatechange = () => {
-            console.log(`[ICE] ${userId} 连接状态: ${pc.iceConnectionState}`);
-            if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+            const currentState = pc.iceConnectionState;
+            console.log(`[ICE] ${userId} 连接状态: ${currentState}`);
+            
+            if (currentState === 'connected' || currentState === 'completed') {
                 console.log(`[ICE] ✅ ${userId} ICE连接成功`);
+                
+                // 清除之前的稳定性检测定时器
+                if (iceStableTimer) {
+                    clearTimeout(iceStableTimer);
+                    iceStableTimer = null;
+                }
+                
+                // 设置稳定性检测：如果2秒后仍然保持connected/completed，认为连接真正稳定
+                iceStableTimer = setTimeout(() => {
+                    if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+                        console.log(`[ICE] 🎉 ${userId} ICE连接稳定，停止轮询`);
+                        this.stopStatusPolling();
+                    }
+                }, 2000);
+                
                 // 立即刷新UI
                 this.updateConnectionStatus();
-            } else if (pc.iceConnectionState === 'failed') {
+            } else if (currentState === 'failed') {
                 console.warn(`[ICE] ❌ ${userId} ICE连接失败,尝试重启ICE...`);
+                if (iceStableTimer) clearTimeout(iceStableTimer);
                 // 尝试重启 ICE
                 if (pc.restartIce) {
                     pc.restartIce();
                 }
-            } else if (pc.iceConnectionState === 'disconnected') {
+            } else if (currentState === 'disconnected') {
                 console.warn(`[ICE] ⚠️ ${userId} ICE断开连接`);
+                if (iceStableTimer) clearTimeout(iceStableTimer);
                 // disconnected 可能是暂时的，等待一会儿再重启
                 setTimeout(() => {
                     if (pc.iceConnectionState === 'disconnected' && pc.restartIce) {
@@ -591,8 +612,15 @@ class MultiPartyWebRTCClient {
                         pc.restartIce();
                     }
                 }, 3000);
+            } else if (currentState === 'checking') {
+                // checking状态下，如果反复震荡，也刷新UI（虽然可能是0）
+                if (lastIceState === 'connected' || lastIceState === 'completed') {
+                    console.warn(`[ICE] ⚠️ ${userId} 从已连接退回checking，可能不稳定`);
+                }
             }
-            // 无论状态为何，变化时刷新一次 UI 统计，避免仅依赖 connectionState 导致显示不一致
+            
+            lastIceState = currentState;
+            // 无论状态为何，变化时刷新一次 UI 统计
             this.updateConnectionStatus();
         };
         
@@ -921,14 +949,28 @@ class MultiPartyWebRTCClient {
     startStatusPolling() {
         // 已有轮询就不重复开启
         if (this.statusPoller) return;
+        
+        let checkCount = 0;
         this.statusPoller = setInterval(() => {
             try {
+                checkCount++;
                 this.updateConnectionStatus();
                 const allPeers = Array.from(this.peerConnections.values());
-                const ok = allPeers.some(pc => pc.connectionState === 'connected' || pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed');
-                if (ok) {
-                    // 一旦检测到有连接，立即停止轮询
-                    this.stopStatusPolling();
+                const hasConnected = allPeers.some(pc => pc.connectionState === 'connected' || pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed');
+                
+                if (hasConnected) {
+                    // 检测到连接，再等待2次轮询确保稳定后停止
+                    if (checkCount > 2) {
+                        console.log(`[statusPolling] ✅ 连接稳定，停止轮询 (共检查${checkCount}次)`);
+                        this.stopStatusPolling();
+                    }
+                } else {
+                    // 超过30秒仍未连接，停止轮询并提示
+                    if (checkCount > 30) {
+                        console.warn(`[statusPolling] ⏱️ 超过30秒仍未连接，停止轮询`);
+                        this.stopStatusPolling();
+                        this.showToast('连接超时，请检查网络或刷新页面重试', 'error');
+                    }
                 }
             } catch (_) {
                 // 忽略单次异常

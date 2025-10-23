@@ -60,9 +60,25 @@ class MultiPartyWebRTCClient {
     }
     
     async init() {
-        await this.connectSignalR();
+        console.log('初始化 WebRTC 客户端...');
+        
+        // 等待 DOM 加载完成
+        if (document.readyState === 'loading') {
+            await new Promise(resolve => {
+                document.addEventListener('DOMContentLoaded', resolve);
+            });
+        }
+        
+        console.log('DOM 已加载，设置事件监听器...');
         this.setupEventListeners();
+        
+        console.log('连接 SignalR...');
+        await this.connectSignalR();
+        
+        console.log('检查 URL 参数...');
         this.checkUrlParams();
+        
+        console.log('初始化完成');
     }
     
     async connectSignalR() {
@@ -146,18 +162,35 @@ class MultiPartyWebRTCClient {
     }
     
     setupEventListeners() {
-        document.getElementById('createRoomBtn').addEventListener('click', () => {
-            this.createRoom();
-        });
+        console.log('=== 设置事件监听器 ===');
         
-        document.getElementById('joinRoomBtn').addEventListener('click', () => {
-            const roomId = document.getElementById('roomIdInput').value.trim();
-            if (roomId) {
-                this.joinRoom(roomId);
-            } else {
-                this.showToast('请输入房间号', 'error');
-            }
-        });
+        const createBtn = document.getElementById('createRoomBtn');
+        console.log('创建按钮元素:', createBtn);
+        
+        if (createBtn) {
+            createBtn.addEventListener('click', () => {
+                console.log('创建聊天室按钮被点击');
+                this.createRoom();
+            });
+            console.log('✅ 创建按钮事件已绑定');
+        } else {
+            console.error('❌ 找不到创建按钮元素!');
+        }
+        
+        const joinBtn = document.getElementById('joinRoomBtn');
+        if (joinBtn) {
+            joinBtn.addEventListener('click', () => {
+                const roomId = document.getElementById('roomIdInput').value.trim();
+                if (roomId) {
+                    this.joinRoom(roomId);
+                } else {
+                    this.showToast('请输入房间号', 'error');
+                }
+            });
+            console.log('✅ 加入按钮事件已绑定');
+        } else {
+            console.error('❌ 找不到加入按钮元素!');
+        }
         
         document.getElementById('leaveRoomBtn').addEventListener('click', () => {
             this.leaveRoom();
@@ -187,28 +220,42 @@ class MultiPartyWebRTCClient {
     }
     
     async createRoom() {
+        console.log('=== 开始创建房间 ===');
+        console.log('SignalR 连接状态:', this.connection?.state);
+        
         try {
-            await this.getUserMedia();
-            
+            // 先创建房间，再获取媒体流
+            console.log('1. 正在调用 SignalR CreateRoom...');
             const result = await this.connection.invoke("CreateRoom", this.userId);
+            console.log('2. SignalR 返回结果:', result);
             
             if (result.type === 'room-created') {
                 this.roomId = result.roomId;
                 this.isCreator = true;
+                
+                console.log('3. 房间创建成功，现在获取媒体流...');
+                try {
+                    await this.getUserMedia();
+                    console.log('4. 媒体流获取成功');
+                } catch (mediaError) {
+                    console.warn('媒体流获取失败，但房间已创建:', mediaError);
+                    this.showToast('麦克风访问失败，但房间已创建', 'warning');
+                }
+                
                 this.showRoomInterface();
                 this.showToast('房间创建成功', 'success');
                 console.log('房间创建成功:', this.roomId);
             }
         } catch (error) {
             console.error('创建房间失败:', error);
-            this.showToast('创建房间失败', 'error');
+            console.error('错误堆栈:', error.stack);
+            this.showToast('创建房间失败: ' + error.message, 'error');
         }
     }
     
     async joinRoom(roomId) {
         try {
-            await this.getUserMedia();
-            
+            // 先加入房间，再获取媒体流
             const result = await this.connection.invoke("JoinRoom", roomId, this.userId);
             
             if (result.type === 'error') {
@@ -218,6 +265,15 @@ class MultiPartyWebRTCClient {
             
             if (result.type === 'room-joined') {
                 this.roomId = roomId;
+                
+                // 尝试获取媒体流
+                try {
+                    await this.getUserMedia();
+                } catch (mediaError) {
+                    console.warn('媒体流获取失败，但已加入房间:', mediaError);
+                    this.showToast('麦克风访问失败，但已加入房间', 'warning');
+                }
+                
                 this.showRoomInterface();
                 this.showToast('已加入房间', 'success');
                 console.log('加入房间成功:', roomId);
@@ -673,5 +729,15 @@ class MultiPartyWebRTCClient {
     }
 }
 
-// 初始化
-const webrtcClient = new MultiPartyWebRTCClient();
+// 初始化 - 等待 DOM 加载完成
+let webrtcClient = null;
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        console.log('DOM 已加载，创建 WebRTC 客户端');
+        webrtcClient = new MultiPartyWebRTCClient();
+    });
+} else {
+    console.log('DOM 已就绪，立即创建 WebRTC 客户端');
+    webrtcClient = new MultiPartyWebRTCClient();
+}

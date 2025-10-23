@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>WebRTC 测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .test-box {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            margin: 5px;
+            cursor: pointer;
+        }
+        #log {
+            background: #000;
+            color: #0f0;
+            padding: 10px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            height: 400px;
+            overflow-y: auto;
+            border-radius: 4px;
+        }
+        .log-entry {
+            margin: 2px 0;
+        }
+        .log-error { color: #f00; }
+        .log-success { color: #0f0; }
+        .log-info { color: #0ff; }
+    </style>
+</head>
+<body>
+    <h1>WebRTC 功能测试</h1>
+    
+    <div class="test-box">
+        <h2>测试步骤</h2>
+        <button onclick="testSignalR()">1. 测试 SignalR 连接</button>
+        <button onclick="testMediaPermission()">2. 测试麦克风权限</button>
+        <button onclick="testCreateRoom()">3. 测试创建房间</button>
+        <button onclick="clearLog()">清空日志</button>
+    </div>
+    
+    <div class="test-box">
+        <h2>日志输出</h2>
+        <div id="log"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@microsoft/signalr@8.0.0/dist/browser/signalr.min.js"></script>
+    <script>
+        let connection = null;
+        let localStream = null;
+        
+        function log(message, type = 'info') {
+            const logDiv = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry log-' + type;
+            entry.textContent = new Date().toLocaleTimeString() + ' - ' + message;
+            logDiv.appendChild(entry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+            console.log(message);
+        }
+        
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+        
+        async function testSignalR() {
+            log('开始测试 SignalR 连接...', 'info');
+            
+            try {
+                if (connection && connection.state === signalR.HubConnectionState.Connected) {
+                    log('SignalR 已经连接', 'success');
+                    return;
+                }
+                
+                connection = new signalR.HubConnectionBuilder()
+                    .withUrl("/webrtc")
+                    .withAutomaticReconnect()
+                    .configureLogging(signalR.LogLevel.Debug)
+                    .build();
+                
+                connection.onclose((error) => {
+                    log('SignalR 连接关闭: ' + (error || '正常关闭'), 'error');
+                });
+                
+                connection.onreconnecting((error) => {
+                    log('SignalR 正在重连...', 'info');
+                });
+                
+                connection.onreconnected(() => {
+                    log('SignalR 重连成功', 'success');
+                });
+                
+                await connection.start();
+                log('✅ SignalR 连接成功!', 'success');
+                log('连接状态: ' + connection.state, 'info');
+                log('连接 ID: ' + connection.connectionId, 'info');
+                
+            } catch (error) {
+                log('❌ SignalR 连接失败: ' + error.message, 'error');
+                console.error('详细错误:', error);
+            }
+        }
+        
+        async function testMediaPermission() {
+            log('开始测试麦克风权限...', 'info');
+            
+            try {
+                const constraints = {
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    },
+                    video: false
+                };
+                
+                log('请求媒体权限...', 'info');
+                localStream = await navigator.mediaDevices.getUserMedia(constraints);
+                log('✅ 麦克风权限获取成功!', 'success');
+                log('音频轨道数: ' + localStream.getAudioTracks().length, 'info');
+                
+                const audioTrack = localStream.getAudioTracks()[0];
+                if (audioTrack) {
+                    log('音频轨道标签: ' + audioTrack.label, 'info');
+                    log('音频轨道状态: ' + audioTrack.readyState, 'info');
+                    log('音频轨道设置: ' + JSON.stringify(audioTrack.getSettings()), 'info');
+                }
+                
+            } catch (error) {
+                log('❌ 麦克风权限获取失败: ' + error.message, 'error');
+                log('错误名称: ' + error.name, 'error');
+                console.error('详细错误:', error);
+            }
+        }
+        
+        async function testCreateRoom() {
+            log('开始测试创建房间...', 'info');
+            
+            try {
+                // 检查 SignalR 连接
+                if (!connection || connection.state !== signalR.HubConnectionState.Connected) {
+                    log('SignalR 未连接，先连接...', 'info');
+                    await testSignalR();
+                }
+                
+                // 检查媒体流
+                if (!localStream) {
+                    log('未获取媒体流，先获取...', 'info');
+                    await testMediaPermission();
+                }
+                
+                log('调用 SignalR CreateRoom 方法...', 'info');
+                const userId = 'test_user_' + Math.random().toString(36).substring(7);
+                log('用户 ID: ' + userId, 'info');
+                
+                const result = await connection.invoke("CreateRoom", userId);
+                log('✅ CreateRoom 返回结果: ' + JSON.stringify(result), 'success');
+                
+                if (result.type === 'room-created') {
+                    log('✅ 房间创建成功!', 'success');
+                    log('房间 ID: ' + result.roomId, 'success');
+                } else {
+                    log('⚠ 返回了意外的结果类型: ' + result.type, 'info');
+                }
+                
+            } catch (error) {
+                log('❌ 创建房间失败: ' + error.message, 'error');
+                log('错误类型: ' + error.constructor.name, 'error');
+                console.error('详细错误:', error);
+                console.error('错误堆栈:', error.stack);
+            }
+        }
+        
+        // 页面加载时自动测试 SignalR
+        window.addEventListener('load', () => {
+            log('页面加载完成', 'info');
+            log('浏览器: ' + navigator.userAgent, 'info');
+            setTimeout(() => testSignalR(), 500);
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>快速测试 - WebRTC</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .card {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        button {
+            padding: 15px 30px;
+            font-size: 16px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 10px 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        #status {
+            padding: 15px;
+            margin-top: 20px;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+        pre {
+            background: #000;
+            color: #0f0;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>🎤 WebRTC 快速测试</h1>
+        <p>点击按钮测试"创建聊天室"功能</p>
+        
+        <button onclick="testCreateRoom()">🚀 创建聊天室</button>
+        <button onclick="clearStatus()">🗑️ 清空日志</button>
+        
+        <div id="status"></div>
+        <pre id="console"></pre>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@microsoft/signalr@8.0.0/dist/browser/signalr.min.js"></script>
+    <script>
+        let connection = null;
+        let userId = 'user_' + Math.random().toString(36).substring(2, 11);
+        
+        function log(message, type = 'info') {
+            const consoleDiv = document.getElementById('console');
+            const time = new Date().toLocaleTimeString();
+            consoleDiv.textContent += `[${time}] ${message}\n`;
+            consoleDiv.scrollTop = consoleDiv.scrollHeight;
+            console.log(message);
+        }
+        
+        function showStatus(message, type = 'info') {
+            const statusDiv = document.getElementById('status');
+            statusDiv.className = type;
+            statusDiv.innerHTML = message;
+        }
+        
+        function clearStatus() {
+            document.getElementById('status').innerHTML = '';
+            document.getElementById('console').textContent = '';
+        }
+        
+        async function initSignalR() {
+            if (connection && connection.state === signalR.HubConnectionState.Connected) {
+                log('SignalR 已连接');
+                return true;
+            }
+            
+            try {
+                log('初始化 SignalR 连接...');
+                connection = new signalR.HubConnectionBuilder()
+                    .withUrl("/webrtc")
+                    .withAutomaticReconnect()
+                    .build();
+                
+                await connection.start();
+                log('✅ SignalR 连接成功! ID: ' + connection.connectionId);
+                return true;
+            } catch (error) {
+                log('❌ SignalR 连接失败: ' + error.message);
+                showStatus('SignalR 连接失败: ' + error.message, 'error');
+                return false;
+            }
+        }
+        
+        async function testCreateRoom() {
+            clearStatus();
+            log('========================================');
+            log('开始测试创建聊天室功能');
+            log('用户 ID: ' + userId);
+            log('========================================');
+            
+            try {
+                // 步骤 1: 连接 SignalR
+                showStatus('⏳ 正在连接 SignalR...', 'info');
+                const connected = await initSignalR();
+                if (!connected) {
+                    return;
+                }
+                
+                // 步骤 2: 创建房间
+                showStatus('⏳ 正在创建房间...', 'info');
+                log('调用 CreateRoom 方法...');
+                
+                const result = await connection.invoke("CreateRoom", userId);
+                log('收到服务器响应: ' + JSON.stringify(result, null, 2));
+                
+                // 步骤 3: 检查结果
+                if (result.type === 'room-created') {
+                    log('✅ 房间创建成功!');
+                    log('房间 ID: ' + result.roomId);
+                    
+                    const shareUrl = window.location.origin + '/?room=' + result.roomId;
+                    showStatus(`
+                        <h3>✅ 房间创建成功!</h3>
+                        <p><strong>房间 ID:</strong> <code>${result.roomId}</code></p>
+                        <p><strong>分享链接:</strong></p>
+                        <input type="text" value="${shareUrl}" 
+                               style="width: 100%; padding: 10px; margin-top: 5px;" 
+                               onclick="this.select()" readonly>
+                        <p style="margin-top: 15px; color: #666;">
+                            💡 提示：复制链接分享给其他人即可加入会议<br>
+                            ⚠️ 注意：实际使用时需要允许麦克风权限
+                        </p>
+                    `, 'success');
+                } else {
+                    log('⚠️ 收到意外的响应类型: ' + result.type);
+                    showStatus('收到意外的响应: ' + JSON.stringify(result), 'error');
+                }
+                
+            } catch (error) {
+                log('❌ 创建房间失败: ' + error.message);
+                log('错误堆栈: ' + error.stack);
+                showStatus('❌ 创建房间失败: ' + error.message, 'error');
+            }
+        }
+        
+        // 页面加载时自动连接
+        window.addEventListener('load', () => {
+            log('页面加载完成');
+            log('浏览器: ' + navigator.userAgent.split(')')[0] + ')');
+            setTimeout(initSignalR, 500);
+        });
+    </script>
+</body>
+</html>

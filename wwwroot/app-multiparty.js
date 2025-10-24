@@ -2,7 +2,7 @@
 class MultiPartyWebRTCClient {
     constructor() {
         // 前端版本号（用于排查缓存/版本）
-        this.clientVersion = 'mp-20251024-1745-stable';
+        this.clientVersion = 'mp-20251024-1800-final';
         this.connection = null;
         this.peerConnections = new Map(); // userId -> RTCPeerConnection
         this.pendingIceCandidates = new Map(); // userId -> [candidates] - 缓存提前到达的ICE候选
@@ -579,13 +579,16 @@ class MultiPartyWebRTCClient {
             if (currentState === 'connected' || currentState === 'completed') {
                 console.log(`[ICE] ✅ ${userId} ICE连接成功`);
                 
+                // 立即刷新UI，让用户看到"已连接"
+                this.updateConnectionStatus();
+                
                 // 清除之前的稳定性检测定时器
                 if (iceStableTimer) {
                     clearTimeout(iceStableTimer);
                     iceStableTimer = null;
                 }
                 
-                // 设置稳定性检测：如果2秒后仍然保持connected/completed，认为连接真正稳定
+                // 设置稳定性检测：如果2秒后仍然保持connected/completed，停止轮询
                 iceStableTimer = setTimeout(() => {
                     if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
                         console.log(`[ICE] 🎉 ${userId} ICE连接稳定，停止轮询`);
@@ -593,8 +596,6 @@ class MultiPartyWebRTCClient {
                     }
                 }, 2000);
                 
-                // 立即刷新UI
-                this.updateConnectionStatus();
             } else if (currentState === 'failed') {
                 console.warn(`[ICE] ❌ ${userId} ICE连接失败,尝试重启ICE...`);
                 if (iceStableTimer) clearTimeout(iceStableTimer);
@@ -602,6 +603,7 @@ class MultiPartyWebRTCClient {
                 if (pc.restartIce) {
                     pc.restartIce();
                 }
+                this.updateConnectionStatus();
             } else if (currentState === 'disconnected') {
                 console.warn(`[ICE] ⚠️ ${userId} ICE断开连接`);
                 if (iceStableTimer) clearTimeout(iceStableTimer);
@@ -612,16 +614,19 @@ class MultiPartyWebRTCClient {
                         pc.restartIce();
                     }
                 }, 3000);
+                this.updateConnectionStatus();
             } else if (currentState === 'checking') {
-                // checking状态下，如果反复震荡，也刷新UI（虽然可能是0）
+                // checking状态下，如果反复震荡，也刷新UI
                 if (lastIceState === 'connected' || lastIceState === 'completed') {
                     console.warn(`[ICE] ⚠️ ${userId} 从已连接退回checking，可能不稳定`);
                 }
+                this.updateConnectionStatus();
+            } else {
+                // 其他状态变化也刷新
+                this.updateConnectionStatus();
             }
             
             lastIceState = currentState;
-            // 无论状态为何，变化时刷新一次 UI 统计
-            this.updateConnectionStatus();
         };
         
         // ICE 收集状态
